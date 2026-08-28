@@ -154,9 +154,11 @@ private static void callSetText(Object bean, String text) {
 
 private static Method getMethodFallback(Class<?> c, String oldName, String newName) {
     try { return c.getMethod(oldName); }
-    catch (Throwable t) { return c.getMethod(newName); }
+    catch (Throwable t) {
+        try { return c.getMethod(newName); }
+        catch (Throwable t2) { return null; }
+    }
 }
-
 
     private static Method ensureBeanGetText(Object bean) {
     Method m = mBeanGetText;

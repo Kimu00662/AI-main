@@ -1,0 +1,3 @@
+-keep class com.aihellotalk.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**

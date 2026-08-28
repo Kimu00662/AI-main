@@ -145,10 +145,10 @@ private static void callSetText(Object bean, String text) {
         XposedHelpers.callMethod(bean, "setText", text);
     } catch (Throwable t1) {
         try {
-            XposedHelpers.callMethod(bean, "C", text);
+            XposedHelpers.callMethod(bean, "J", text);
         } catch (Throwable t2) {
             try {
-                XposedHelpers.callMethod(bean, "J", text);
+                XposedHelpers.callMethod(bean, "C", text);
             } catch (Throwable t3) {
                 log("setText fail: " + t3.getMessage());
             }

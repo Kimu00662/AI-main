@@ -117,9 +117,13 @@ public class ChatHook {
     private static volatile Method mBeanGetText = null;
 
     private static void ensureMsgMethods(Object msg) {
-        if (msgMethodsReady || msg == null) return;
+    if (msgMethodsReady || msg == null) return;
+
+    try {
+        Class<?> c = msg.getClass();
+
+        // ===== 先尝试旧版 HelloTalk =====
         try {
-            Class<?> c = msg.getClass();
             mIsSender = c.getMethod("isSender");
             mGetChatId = c.getMethod("getChatId");
             mGetSenderName = c.getMethod("getSenderName");
@@ -127,10 +131,41 @@ public class ChatHook {
             mGetMsgId = c.getMethod("getMsgId");
             mGetSendTime = c.getMethod("getSendTime");
             mGetReplyInfo = c.getMethod("getReplyInfo");
-            mGetMsgContentTyped = c.getMethod("getMessageContent", Class.class, boolean.class);
+            mGetMsgContentTyped =
+                    c.getMethod("getMessageContent", Class.class, boolean.class);
+
             msgMethodsReady = true;
-        } catch (Throwable ignored) {}
+            return;
+
+        } catch (Throwable oldApiFailed) {
+            // 旧版方法不存在，继续尝试新版
+        }
+
+        // ===== 新版 HelloTalk 6.4.0 =====
+        // Y  = isSender
+        // w  = getChatId
+        // S  = getSenderName
+        // M  = getMsgType
+        // L  = getMsgId
+        // R  = getSendTime
+        // N  = getReplyInfo
+        // B  = getMessageContent(Class)
+
+        mIsSender = c.getMethod("Y");
+        mGetChatId = c.getMethod("w");
+        mGetSenderName = c.getMethod("S");
+        mGetMsgType = c.getMethod("M");
+        mGetMsgId = c.getMethod("L");
+        mGetSendTime = c.getMethod("R");
+        mGetReplyInfo = c.getMethod("N");
+        mGetMsgContentTyped = c.getMethod("B", Class.class);
+
+        msgMethodsReady = true;
+
+    } catch (Throwable t) {
+        msgMethodsReady = false;
     }
+}
 
     private static Method ensureBeanGetText(Object bean) {
         Method m = mBeanGetText;
@@ -186,6 +221,7 @@ public class ChatHook {
         try { hookBubbleFlip(cl); } catch (Throwable ignored) {}
         try { hookStartChat(cl); } catch (Throwable ignored) {}
         try { hookRecv(cl); } catch (Throwable ignored) {}
+        try { hookRecvNew(cl); } catch (Throwable ignored) {}
         try { hookLang(cl); } catch (Throwable ignored) {}
         try { hookBtnOld(cl); } catch (Throwable ignored) {}
         try { hookBtnNew(cl); } catch (Throwable ignored) {}
@@ -1173,6 +1209,161 @@ private static boolean readStealthConfig(String key, boolean def) {
                 });
     }
 
+private static void hookRecvNew(ClassLoader cl) throws Exception {
+
+    Class<?> hm =
+            cl.loadClass("com.hellotalk.lib.im.entity.HTIMMessage");
+
+    // 新版 getMessageContent(Class) 的真实名字是 B
+    XposedHelpers.findAndHookMethod(
+            hm,
+            "B",
+            Class.class,
+            new XC_MethodHook() {
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+
+                    try {
+                        Object msg = p.thisObject;
+                        if (msg == null) return;
+
+                        ensureMsgMethods(msg);
+
+                        if (!msgMethodsReady) return;
+
+                        // 是否自己发送
+                        Object mineObj = invokeQuiet(mIsSender, msg);
+                        if (!(mineObj instanceof Boolean)) return;
+
+                        boolean isMine = (Boolean) mineObj;
+
+                        // 我自己发的不要在这里翻译
+                        if (isMine) return;
+
+                        // 当前聊天 ID
+                        Object cidObj = invokeQuiet(mGetChatId, msg);
+                        if (cidObj == null) return;
+
+                        String chatId = String.valueOf(cidObj);
+
+                        if (chatId.isEmpty()
+                                || "0".equals(chatId)
+                                || "null".equals(chatId)) {
+                            return;
+                        }
+
+                        // 消息类型
+                        Object typeObj = invokeQuiet(mGetMsgType, msg);
+                        if (typeObj == null) return;
+
+                        String msgType = String.valueOf(typeObj);
+
+                        // 只处理普通文字消息
+                        if (!"text".equals(msgType)) return;
+
+                        // HelloTalk 已经把消息解析成 Bean
+                        Object bean = p.getResult();
+                        if (bean == null) return;
+
+                        Method getText = ensureBeanGetText(bean);
+                        if (getText == null) return;
+
+                        Object textObj = invokeQuiet(getText, bean);
+                        if (textObj == null) return;
+
+                        String text = String.valueOf(textObj).trim();
+
+                        if (text.isEmpty()) return;
+
+                        // 中文 / 日文等不需要翻译的内容直接跳过
+                        if (!AITranslator.needTranslateToChinese(text)) {
+                            return;
+                        }
+
+                        // 消息 ID
+                        Object idObj = invokeQuiet(mGetMsgId, msg);
+                        String mid = idObj != null
+                                ? String.valueOf(idObj)
+                                : ("new_" + text.hashCode());
+
+                        if (mid.isEmpty() || "null".equals(mid)) {
+                            mid = "new_" + text.hashCode();
+                        }
+
+                        // 防止同一条消息重复请求
+                        final String finalMid = mid;
+
+                        if (!translating.add(finalMid)) {
+                            return;
+                        }
+
+                        final Object finalBean = bean;
+                        final String finalText = text;
+                        final String finalChatId = chatId;
+
+                        new Thread(() -> {
+
+                            try {
+
+                                String chinese = null;
+
+                                try {
+                                    chinese = AITranslator.toChinese(
+                                            finalText,
+                                            finalChatId
+                                    );
+
+                                } catch (Exception firstError) {
+
+                                    try {
+                                        Thread.sleep(1500);
+                                    } catch (InterruptedException ignored) {}
+
+                                    chinese = AITranslator.toChinese(
+                                            finalText,
+                                            finalChatId
+                                    );
+                                }
+
+                                if (chinese != null
+                                        && !chinese.trim().isEmpty()
+                                        && !chinese.equals(finalText)) {
+
+                                    AITranslator.cacheResult(
+                                            finalMid,
+                                            finalText,
+                                            chinese
+                                    );
+
+                                    try {
+                                        XposedHelpers.callMethod(
+                                                finalBean,
+                                                "setText",
+                                                chinese.replaceAll(
+                                                        "[\\s🌐🔄]+$",
+                                                        ""
+                                                ) + " 🔄"
+                                        );
+
+                                    } catch (Throwable ignored) {}
+                                }
+
+                            } catch (Throwable ignored) {
+
+                            } finally {
+
+                                translating.remove(finalMid);
+                            }
+
+                        }, "HT_AI_NewRecv").start();
+
+                    } catch (Throwable ignored) {}
+                }
+            }
+    );
+}
+    
     private static void hookBtnOld(ClassLoader cl) throws Exception {
         Class<?> bc = XposedHelpers.findClass("com.hellotalk.chat.ui.ChatInputBoxView", cl);
         XposedBridge.hookAllConstructors(bc, new XC_MethodHook() {

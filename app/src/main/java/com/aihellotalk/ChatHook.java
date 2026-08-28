@@ -70,7 +70,7 @@ public class ChatHook {
     private static volatile String currentQuotedImagePath = null;
     private static volatile boolean currentQuotedImageMissing = false;
 
-    // ===== 鏂板锛氬綋鍓嶅洖澶嶆潯閫変腑鐨勬秷鎭� =====
+    // ===== 新增：当前回复条选中的消息 =====
     private static volatile String selectedReplyText = null;
     private static volatile String selectedReplyMsgType = null;
     private static volatile boolean selectedReplyIsMine = false;
@@ -81,7 +81,7 @@ public class ChatHook {
     private static volatile String selectedReplyChatId = null;
     private static volatile ClassLoader hostClassLoader = null;
     
-    // ===== v5.13 鍥炲寮曠敤涓浆鍙橀噺 =====
+    // ===== v5.13 回复引用中转变量 =====
     private static volatile String pendingSendQuote = null;
     private static volatile String pendingSendChatId = null;
     private static final long SELECTED_REPLY_FALLBACK_WINDOW_MS = 120000L;
@@ -170,7 +170,7 @@ public class ChatHook {
 
     public static void install(ClassLoader cl) {
         hostClassLoader = cl;
-        log("=== Hook v5.5 绮惧噯鍥炲淇鐗� ===");
+        log("=== Hook v5.5 精准回复修复版 ===");
 
         try {
             htTextViewClass = XposedHelpers.findClassIfExists(HT_TEXT_VIEW_CLASS, cl);
@@ -192,10 +192,10 @@ public class ChatHook {
         try { hookUltimateStealth(cl); } catch (Throwable ignored) {}
         try { hookImageRenderLayer(cl); } catch (Throwable ignored) {}
 
-        // 鍏抽敭锛歨ook HelloTalk 杈撳叆妗嗕笂鏂圭殑鈥滃洖澶嶆潯鈥�
+        // 关键：hook HelloTalk 输入框上方的“回复条”
         try { hookInputReplyBar(cl); } catch (Throwable ignored) {}
         
-        // ===== v5.13 鏂板锛歨ook 鎷︽埅鍙戦€佸姩浣� =====
+        // ===== v5.13 新增：hook 拦截发送动作 =====
         try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
         try { hookSendMessage(cl); } catch (Throwable ignored) {}
     }
@@ -207,7 +207,7 @@ public class ChatHook {
     private static boolean isPureBracketQuery(String text) {
         if (text == null) return false;
         String s = text.trim();
-        return (s.startsWith("(") && s.endsWith(")")) || (s.startsWith("锛�") && s.endsWith("锛�"));
+        return (s.startsWith("(") && s.endsWith(")")) || (s.startsWith("（") && s.endsWith("）"));
     }
     private static boolean shouldSkipHistory(String text) {
         if (text == null) return false;
@@ -515,30 +515,30 @@ public class ChatHook {
     }
 
     private static String describeNonTextMessage(String mt, boolean isMine) {
-        String who = isMine ? "鎴�" : "瀵规柟";
-        if (mt == null) return "[" + who + "鍙戦€佷簡涓€鏉℃秷鎭痌";
+        String who = isMine ? "我" : "对方";
+        if (mt == null) return "[" + who + "发送了一条消息]";
 
         switch (mt) {
             case "image":
             case "photo":
-                return "[" + who + "鍙戦€佷簡涓€寮犲浘鐗嘳";
+                return "[" + who + "发送了一张图片]";
             case "voice":
             case "audio":
-                return "[" + who + "鍙戦€佷簡涓€鏉¤闊砞";
+                return "[" + who + "发送了一条语音]";
             case "video":
-                return "[" + who + "鍙戦€佷簡涓€娈佃棰慮";
+                return "[" + who + "发送了一段视频]";
             case "emoji":
             case "sticker":
-                return "[" + who + "鍙戦€佷簡涓€涓〃鎯呭寘]";
+                return "[" + who + "发送了一个表情包]";
             case "location":
-                return "[" + who + "鍙戦€佷簡涓€涓綅缃甝";
+                return "[" + who + "发送了一个位置]";
             case "card":
             case "introduction":
-                return "[" + who + "鍙戦€佷簡涓€寮犲悕鐗嘳";
+                return "[" + who + "发送了一张名片]";
             case "gift":
-                return "[" + who + "鍙戦€佷簡涓€涓ぜ鐗";
+                return "[" + who + "发送了一个礼物]";
             default:
-                return "[" + who + "鍙戦€佷簡涓€鏉�" + mt + "娑堟伅]";
+                return "[" + who + "发送了一条" + mt + "消息]";
         }
     }
 
@@ -649,13 +649,13 @@ private static boolean readStealthConfig(String key, boolean def) {
 
                     String s = cs.toString();
                     if (s.isEmpty() || s.length() > 5000) return;
-                    if (s.endsWith(" 馃寪") || s.endsWith(" 馃攧")) return;
+                    if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
                     String d = AITranslator.getDraftFuzzy(s);
                     if (d == null) d = AITranslator.getChineseByForeign(s);
                     if (d != null && !d.equals(s)) {
                         SpannableStringBuilder ssb = new SpannableStringBuilder(cs);
-                        ssb.append(" 馃寪");
+                        ssb.append(" 🌐");
                         param.args[0] = ssb;
                     }
                 } catch (Throwable ignored) {}
@@ -687,12 +687,12 @@ private static boolean readStealthConfig(String key, boolean def) {
                                 if (chars == null || len <= 0 || len > 5000) return;
 
                                 String s = new String(chars, start, len);
-                                if (s.endsWith(" 馃寪") || s.endsWith(" 馃攧")) return;
+                                if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
                                 String d = AITranslator.getDraftFuzzy(s);
                                 if (d == null) d = AITranslator.getChineseByForeign(s);
                                 if (d != null && !d.equals(s)) {
-                                    String ns = s + " 馃寪";
+                                    String ns = s + " 🌐";
                                     param.args[0] = ns.toCharArray();
                                     param.args[1] = 0;
                                     param.args[2] = ns.length();
@@ -715,7 +715,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                         if (cd.getDescription() != null && "HT_AI_Copy".equals(cd.getDescription().getLabel())) {
                             return;
                         }
-                        if (!ts.endsWith(" 馃寪") && !ts.endsWith(" 馃攧") && !ts.matches(".*[\\u4e00-\\u9fa5]+.*")) {
+                        if (!ts.endsWith(" 🌐") && !ts.endsWith(" 🔄") && !ts.matches(".*[\\u4e00-\\u9fa5]+.*")) {
                             return;
                         }
                         try {
@@ -748,7 +748,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                         if (cs == null) return;
 
                         String s = cs.toString();
-                        if (!s.endsWith(" 馃攧") && !s.endsWith(" 馃寪")) return;
+                        if (!s.endsWith(" 🔄") && !s.endsWith(" 🌐")) return;
 
                         Layout lay = tv.getLayout();
                         if (lay == null) return;
@@ -759,15 +759,15 @@ private static boolean readStealthConfig(String key, boolean def) {
 
                         if (ev.getAction() == MotionEvent.ACTION_UP) {
                             String clean = s.substring(0, s.length() - 2).trim();
-                            if (s.endsWith(" 馃攧")) {
+                            if (s.endsWith(" 🔄")) {
                                 String orig = AITranslator.getForeignByDraftChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignByChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignFuzzy(clean);
-                                if (orig != null && !orig.equals(clean)) tv.setText(orig + " 馃寪");
+                                if (orig != null && !orig.equals(clean)) tv.setText(orig + " 🌐");
                             } else {
                                 String zh = AITranslator.getDraftFuzzy(clean);
                                 if (zh == null) zh = AITranslator.getChineseByForeign(clean);
-                                if (zh != null && !zh.equals(clean)) tv.setText(zh + " 馃攧");
+                                if (zh != null && !zh.equals(clean)) tv.setText(zh + " 🔄");
                             }
                             p.setResult(true);
                         }
@@ -780,8 +780,8 @@ private static boolean readStealthConfig(String key, boolean def) {
 
     private static void hookStartChat(ClassLoader cl) throws Exception {
 
-    // ===== 鏃х増 HelloTalk =====
-    // 淇濈暀鍘熸潵鐨� startChat 閫昏緫锛屼繚璇佹棫鐗堜笉鍙楀奖鍝�
+    // ===== 旧版 HelloTalk =====
+    // 保留原来的 startChat 逻辑，保证旧版不受影响
     try {
         XposedHelpers.findAndHookMethod(
                 "com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl,
@@ -816,12 +816,12 @@ private static boolean readStealthConfig(String key, boolean def) {
                     }
                 });
     } catch (Throwable t) {
-        log("鏃х増 startChat 涓嶅瓨鍦紝鍚敤鏂扮増 ChatDetailFragment 鏂规");
+        log("旧版 startChat 不存在，启用新版 ChatDetailFragment 方案");
     }
 
-    // ===== 鏂扮増 HelloTalk 6.4.0 =====
-    // 鏂扮増 ChatDetailViewModel.startChat 宸茬粡涓嶅瓨鍦紝
-    // chatId 淇濆瓨鍦� ChatDetailFragment 涓紝鐢� H3() 杩斿洖銆�
+    // ===== 新版 HelloTalk 6.4.0 =====
+    // 新版 ChatDetailViewModel.startChat 已经不存在，
+    // chatId 保存在 ChatDetailFragment 中，由 H3() 返回。
     try {
         XposedHelpers.findAndHookMethod(
                 "com.hellotalk.talk.detail.fragment.ChatDetailFragment",
@@ -836,12 +836,12 @@ private static boolean readStealthConfig(String key, boolean def) {
 
                             int cid = (Integer) result;
 
-                            // 0 琛ㄧず褰撳墠杩樻病鏈夋湁鏁堜細璇�
+                            // 0 表示当前还没有有效会话
                             if (cid <= 0) return;
 
                             String newChatId = String.valueOf(cid);
 
-                            // 鍙湁鐪熸鍒囨崲鑱婂ぉ鏃舵墠娓呯悊涓婁竴鑱婂ぉ鐨勬暟鎹�
+                            // 只有真正切换聊天时才清理上一聊天的数据
                             if (!newChatId.equals(currentChatId)) {
                                 currentChatId = newChatId;
                                 latestNationality = "";
@@ -852,21 +852,21 @@ private static boolean readStealthConfig(String key, boolean def) {
                                 currentQuotedImageMissing = false;
                                 resetSelectedReply();
 
-                                log("鏂扮増 ChatDetailFragment.H3() 鑾峰彇 chatId = " + newChatId);
+                                log("新版 ChatDetailFragment.H3() 获取 chatId = " + newChatId);
                             } else {
                                 currentChatId = newChatId;
                             }
 
                         } catch (Throwable t) {
-                            log("鏂扮増 H3 chatId 鑾峰彇澶辫触: " + t.getMessage());
+                            log("新版 H3 chatId 获取失败: " + t.getMessage());
                         }
                     }
                 });
 
-        log("鏂扮増 ChatDetailFragment.H3 Hook 娉ㄥ唽鎴愬姛");
+        log("新版 ChatDetailFragment.H3 Hook 注册成功");
 
     } catch (Throwable t) {
-        log("鏂扮増 ChatDetailFragment.H3 Hook 娉ㄥ唽澶辫触: " + t.getMessage());
+        log("新版 ChatDetailFragment.H3 Hook 注册失败: " + t.getMessage());
     }
 }
 
@@ -886,7 +886,7 @@ private static boolean readStealthConfig(String key, boolean def) {
             if (!currentChatId.isEmpty() && !"0".equals(currentChatId)) {
                 AITranslator.updateFriendNationality(currentChatId, latestNationality);
             }
-            log("鍥界睄鍘熸枃: [" + latestNationality + "] 姣嶈鐮�: " + nl);
+            log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
         } catch (Throwable ignored) {}
     }
 
@@ -973,7 +973,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                             Object cidO = invokeQuiet(mGetChatId, msg);
                             if (cidO != null) eid = String.valueOf(cidO);
                             
-                            // ===== v5.13 淇涓插彿锛堟嫆缁濅娇鐢ㄥ綋鍓嶇獥鍙D锛�=====
+                            // ===== v5.13 修复串号（拒绝使用当前窗口ID）=====
                             if ("0".equals(eid) || "null".equals(eid) || eid.trim().isEmpty()) {
                                 return;
                             }
@@ -995,13 +995,13 @@ private static boolean readStealthConfig(String key, boolean def) {
 
                             if (text == null || text.isEmpty()) {
                                 if ("image".equals(mt) || "photo".equals(mt)) {
-                                    text = "[瀵规柟鍙戦€佷簡涓€寮犲浘鐗嘳";
+                                    text = "[对方发送了一张图片]";
                                 } else if ("voice".equals(mt) || "audio".equals(mt)) {
-                                    text = "[瀵规柟鍙戦€佷簡涓€鏉¤闊砞";
+                                    text = "[对方发送了一条语音]";
                                 } else if ("video".equals(mt)) {
-                                    text = "[瀵规柟鍙戦€佷簡涓€娈佃棰慮";
+                                    text = "[对方发送了一段视频]";
                                 } else if ("emoji".equals(mt) || "sticker".equals(mt)) {
-                                    text = "[瀵规柟鍙戦€佷簡涓€涓〃鎯呭寘]";
+                                    text = "[对方发送了一个表情包]";
                                 } else {
                                     return;
                                 }
@@ -1131,7 +1131,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                             if (cached != null && cached[0] != null && cached[0].equals(text)) {
                                 try {
                                     XposedHelpers.callMethod(bean, "setText",
-                                            cached[1].replaceAll("[\\s馃寪馃攧]+$", "") + " 馃攧");
+                                            cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
                                 } catch (Exception ignored) {}
                                 return;
                             }
@@ -1149,7 +1149,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                                         t = AITranslator.toChinese(ft, chatId);
                                     } catch (Exception fe) {
                                         String m = fe.getMessage() == null ? "" : fe.getMessage();
-                                        if (!m.contains("Key鏈厤缃�") && !m.contains("鏈垵濮嬪寲")) {
+                                        if (!m.contains("Key未配置") && !m.contains("未初始化")) {
                                             try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
                                             t = AITranslator.toChinese(ft, chatId);
                                         }
@@ -1159,7 +1159,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                                         AITranslator.cacheResult(fm, ft, t);
                                         try {
                                             XposedHelpers.callMethod(fb, "setText",
-                                                    t.replaceAll("[\\s馃寪馃攧]+$", "") + " 馃攧");
+                                                    t.replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
                                         } catch (Exception ignored) {}
                                     }
                                 } catch (Exception ignored) {
@@ -1224,8 +1224,8 @@ private static boolean readStealthConfig(String key, boolean def) {
         if (btn == null) return;
         String cid = currentChatId;
         String ov = (cid == null) ? null : chatLangOverride.get(cid);
-        if (ov == null || ov.isEmpty()) btn.setText("璇�");
-        else btn.setText("璇懧�" + ov.toUpperCase());
+        if (ov == null || ov.isEmpty()) btn.setText("译");
+        else btn.setText("译·" + ov.toUpperCase());
     }
 
         private static void showLanguagePicker(Button btn, EditText edit) {
@@ -1233,7 +1233,7 @@ private static boolean readStealthConfig(String key, boolean def) {
         android.content.Context ctx = edit.getContext();
         final String cid = currentChatId;
         if (cid == null || cid.isEmpty() || "0".equals(cid) || "null".equals(cid)) {
-            Toast.makeText(ctx, "鈿狅笍 浼氳瘽灏氭湭灏辩华锛岃閫€鍑洪噸鏂拌繘鍏�", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, "⚠️ 会话尚未就绪，请退出重新进入", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -1241,23 +1241,23 @@ private static boolean readStealthConfig(String key, boolean def) {
         root.setOrientation(android.widget.LinearLayout.VERTICAL);
         root.setPadding(0, 24, 0, 0);
 
-        // ============ 鍏ㄥ眬鍚屾锛氫竴娆℃€у閫夋 ============
+        // ============ 全局同步：一次性复选框 ============
         final android.content.SharedPreferences sp = ctx.getSharedPreferences("htai_quick_prefs", android.content.Context.MODE_PRIVATE);
         final android.widget.CheckBox checkBoxOneTime = new android.widget.CheckBox(ctx);
-        checkBoxOneTime.setText("浠呮湰娆� (鍏ㄥ眬鍚屾锛屼笉姹℃煋鍘嗗彶璁板繂)");
+        checkBoxOneTime.setText("仅本次 (全局同步，不污染历史记忆)");
         checkBoxOneTime.setTextSize(13f);
         checkBoxOneTime.setTextColor(Color.parseColor("#B02A37"));
         checkBoxOneTime.setPadding(48, 16, 48, 16);
         checkBoxOneTime.setChecked(sp.getBoolean("always_one_time", false));
         checkBoxOneTime.setOnCheckedChangeListener((btnView, isChecked) -> {
             sp.edit().putBoolean("always_one_time", isChecked).apply();
-            Toast.makeText(ctx, isChecked ? "鉁� 宸插紑鍚粎鏈" : "鉂� 宸插叧闂粎鏈", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, isChecked ? "✅ 已开启仅本次" : "❌ 已关闭仅本次", Toast.LENGTH_SHORT).show();
         });
         root.addView(checkBoxOneTime);
 
-        // ============ 蹇嵎鎸囦护婊戝姩鏉� ============
+        // ============ 快捷指令滑动条 ============
         TextView tagHeader = new TextView(ctx);
-        tagHeader.setText("鈿� 蹇嵎璋冩暀鎸囦护");
+        tagHeader.setText("⚡ 快捷调教指令");
         tagHeader.setTextSize(12f);
         tagHeader.setTextColor(Color.GRAY);
         tagHeader.setPadding(48, 16, 48, 8);
@@ -1298,13 +1298,13 @@ private static boolean readStealthConfig(String key, boolean def) {
             tagBtn.setOnClickListener(v2 -> {
                 String origChinese = edit.getText().toString();
                 String newPrompt = origChinese;
-                if (newPrompt.endsWith("锛�") || newPrompt.endsWith(")")) {
-                    newPrompt = newPrompt.replaceAll("[锛圽\(][^锛塡\)]*[锛塡\)]$", "").trim();
+                if (newPrompt.endsWith("）") || newPrompt.endsWith(")")) {
+                    newPrompt = newPrompt.replaceAll("[（\\(][^）\\)]*[）\\)]$", "").trim();
                 }
-                if (tag.contains("鐏姏鍏ㄥ紑") || checkBoxOneTime.isChecked()) {
-                    newPrompt = "涓€娆℃€э細" + newPrompt + " 锛�" + tagContent + "锛�";
+                if (tag.contains("火力全开") || checkBoxOneTime.isChecked()) {
+                    newPrompt = "一次性：" + newPrompt + " （" + tagContent + "）";
                 } else {
-                    newPrompt = newPrompt + " 锛�" + tagContent + "锛�";
+                    newPrompt = newPrompt + " （" + tagContent + "）";
                 }
                 edit.setText(newPrompt);
                 edit.setSelection(newPrompt.length());
@@ -1315,14 +1315,14 @@ private static boolean readStealthConfig(String key, boolean def) {
         }
         root.addView(hsv);
 
-        // ============ 璇█鍒楄〃鍖� ============
+        // ============ 语言列表区 ============
         View div = new View(ctx);
         div.setBackgroundColor(Color.parseColor("#DDDDDD"));
         div.setLayoutParams(new android.widget.LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 2));
         root.addView(div);
 
         final String[] codes = {"auto", "en", "es", "ru", "uk", "ko", "ar", "pt", "fr", "de", "it", "tr", "nl", "pl", "kk", "cs"};
-        final String[] names = {"馃寪 鑷姩鍒ゆ柇", "鑻辫 English", "瑗跨彮鐗欒 Espa帽ol", "淇勮 袪褍褋褋泻懈泄", "涔屽厠鍏拌 校泻褉邪褩薪褋褜泻邪", "闊╄ 頃滉淡鞏�", "闃挎媺浼 丕賱毓乇亘賷丞", "钁¤悇鐗欒 Portugu锚s", "娉曡 Fran莽ais", "寰疯 Deutsch", "鎰忓ぇ鍒╄ Italiano", "鍦熻€冲叾璇� T眉rk莽e", "鑽峰叞璇� Nederlands", "娉㈠叞璇� Polski", "鍝堣惃鍏嬭 覛邪蟹邪覜褕邪", "鎹峰厠璇� 膶e拧tina"};
+        final String[] names = {"🌐 自动判断", "英语 English", "西班牙语 Español", "俄语 Русский", "乌克兰语 Українська", "韩语 한국어", "阿拉伯语 العربية", "葡萄牙语 Português", "法语 Français", "德语 Deutsch", "意大利语 Italiano", "土耳其语 Türkçe", "荷兰语 Nederlands", "波兰语 Polski", "哈萨克语 Қазақша", "捷克语 Čeština"};
         
         android.widget.ListView listView = new android.widget.ListView(ctx);
         android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(ctx, android.R.layout.simple_list_item_1, names);
@@ -1330,9 +1330,9 @@ private static boolean readStealthConfig(String key, boolean def) {
         root.addView(listView);
 
         android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
-                .setTitle("闀挎寜鑿滃崟 (蹇嵎鎸囦护 & 涓存椂璇█)")
+                .setTitle("长按菜单 (快捷指令 & 临时语言)")
                 .setView(root)
-                .setNegativeButton("鍙栨秷", null)
+                .setNegativeButton("取消", null)
                 .create();
         
         dialogRef[0] = dialog;
@@ -1342,7 +1342,7 @@ private static boolean readStealthConfig(String key, boolean def) {
             if ("auto".equals(code)) chatLangOverride.remove(cid);
             else chatLangOverride.put(cid, code);
             updateTranslateBtnText(btn);
-            Toast.makeText(ctx, "褰撳墠鑱婂ぉ璇█宸茶涓猴細" + names[position], Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, "当前聊天语言已设为：" + names[position], Toast.LENGTH_SHORT).show();
             dialog.dismiss();
         });
 
@@ -1361,7 +1361,7 @@ private static boolean readStealthConfig(String key, boolean def) {
         if ("HT_AI_BTN".equals(String.valueOf(layout.getTag()))) return;
 
         Button btn = new Button(layout.getContext());
-        btn.setText("璇�");
+        btn.setText("译");
         btn.setTextSize(12f);
         btn.setAllCaps(false);
         btn.setPadding(12, 4, 12, 4);
@@ -1377,7 +1377,7 @@ private static boolean readStealthConfig(String key, boolean def) {
         layout.setTag("HT_AI_BTN");
 
         Button verBtn = new Button(layout.getContext());
-        verBtn.setText("鐗堟湰");
+        verBtn.setText("版本");
         verBtn.setTextSize(12f);
         verBtn.setAllCaps(false);
         verBtn.setPadding(12, 4, 12, 4);
@@ -1398,11 +1398,11 @@ private static boolean readStealthConfig(String key, boolean def) {
             if (lastPickerResult != null) {
                 showPicker(edit, btn, lastPickerResult, lastPickerOrig, lastPickerPns, lastPickerOneTime);
             } else {
-                Toast.makeText(edit.getContext(), "鏆傛棤鍙€夌増鏈�", Toast.LENGTH_SHORT).show();
+                Toast.makeText(edit.getContext(), "暂无可选版本", Toast.LENGTH_SHORT).show();
             }
         });
         btn.setOnLongClickListener(v -> {
-            if (isTranslatingAPI) Toast.makeText(edit.getContext(), "缈昏瘧涓紝璇风◢鍊�", Toast.LENGTH_SHORT).show();
+            if (isTranslatingAPI) Toast.makeText(edit.getContext(), "翻译中，请稍候", Toast.LENGTH_SHORT).show();
             else showLanguagePicker(btn, edit);
             return true;
         });
@@ -1475,24 +1475,24 @@ private static boolean readStealthConfig(String key, boolean def) {
             pendingSelectedForeign = null;
             lastPickerResult = null;
 
-            boolean oneTime = text.startsWith("涓€娆℃€э細")
-                    || text.startsWith("涓€娆℃€�:")
-                    || text.startsWith("[涓€娆℃€");
+            boolean oneTime = text.startsWith("一次性：")
+                    || text.startsWith("一次性:")
+                    || text.startsWith("[一次性]");
 
-            if (text.startsWith("涓€娆℃€э細")) {
-                text = text.substring("涓€娆℃€э細".length()).trim();
-            } else if (text.startsWith("涓€娆℃€�:")) {
-                text = text.substring("涓€娆℃€�:".length()).trim();
-            } else if (text.startsWith("[涓€娆℃€")) {
-                text = text.substring("[涓€娆℃€".length()).trim();
+            if (text.startsWith("一次性：")) {
+                text = text.substring("一次性：".length()).trim();
+            } else if (text.startsWith("一次性:")) {
+                text = text.substring("一次性:".length()).trim();
+            } else if (text.startsWith("[一次性]")) {
+                text = text.substring("[一次性]".length()).trim();
             }
 
             if (text.isEmpty()) return;
 
             if (!oneTime) {
-                int p1 = text.indexOf("锛�");
-                int p2 = text.indexOf("锛�");
-                if (p1 >= 0 && p2 > p1 && text.substring(p1, p2 + 1).contains("涓€娆℃€�")) {
+                int p1 = text.indexOf("（");
+                int p2 = text.indexOf("）");
+                if (p1 >= 0 && p2 > p1 && text.substring(p1, p2 + 1).contains("一次性")) {
                     oneTime = true;
                 }
             }
@@ -1501,7 +1501,7 @@ private static boolean readStealthConfig(String key, boolean def) {
 
             String cid = currentChatId;
             if (cid == null || cid.isEmpty() || "0".equals(cid) || "null".equals(cid)) {
-                Toast.makeText(edit.getContext(), "鈿狅笍 浼氳瘽灏氭湭灏辩华锛岃閫€鍑鸿亰澶╅噸鏂拌繘鍏ュ悗鍐嶈瘯", Toast.LENGTH_SHORT).show();
+                Toast.makeText(edit.getContext(), "⚠️ 会话尚未就绪，请退出聊天重新进入后再试", Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -1526,7 +1526,7 @@ private static boolean readStealthConfig(String key, boolean def) {
             String cleanText = text;
             if (pbm) {
                 if (cleanText.startsWith("(") && cleanText.endsWith(")")) cleanText = cleanText.substring(1, cleanText.length() - 1).trim();
-                else if (cleanText.startsWith("锛�") && cleanText.endsWith("锛�")) cleanText = cleanText.substring(1, cleanText.length() - 1).trim();
+                else if (cleanText.startsWith("（") && cleanText.endsWith("）")) cleanText = cleanText.substring(1, cleanText.length() - 1).trim();
             }
 
             String ttt = cleanText;
@@ -1536,15 +1536,15 @@ private static boolean readStealthConfig(String key, boolean def) {
                 if (orig != null) quote = orig;
                 if (selectedReplyMine) {
                     if (pbm) {
-                        ttt = "銆愭垜閫変腑鐨勬垜鑷繁鐨勫巻鍙叉秷鎭€戯細" + quote.trim() + "\n銆愭垜瀵硅繖鏉℃秷鎭殑鐤戦棶/鎻愰棶銆戯細" + cleanText;
+                        ttt = "【我选中的我自己的历史消息】：" + quote.trim() + "\n【我对这条消息的疑问/提问】：" + cleanText;
                     } else {
-                        ttt = "銆愭垜瀵规垜鑷繁涔嬪墠杩欐潯澶栬娑堟伅鐨勮ˉ鍏呫€戯細" + quote.trim() + "\n銆愯ˉ鍏呭唴瀹广€戯細" + cleanText;
+                        ttt = "【我对我自己之前这条外语消息的补充】：" + quote.trim() + "\n【补充内容】：" + cleanText;
                     }
                 } else {
                     if (pbm) {
-                        ttt = "銆愭垜閫変腑鐨勫鏂瑰師璇濄€戯細" + quote.trim() + "\n銆愭垜鍏充簬杩欏彞璇濈殑鎻愰棶/瑕佹眰銆戯細" + cleanText;
+                        ttt = "【我选中的对方原话】：" + quote.trim() + "\n【我关于这句话的提问/要求】：" + cleanText;
                     } else {
-                        ttt = "銆愭垜瑕佸洖澶嶇殑瀵规柟鍘熻瘽銆戯細" + quote.trim() + "\n銆愭垜鐨勫洖澶嶃€戯細" + cleanText;
+                        ttt = "【我要回复的对方原话】：" + quote.trim() + "\n【我的回复】：" + cleanText;
                     }
                 }
             }
@@ -1567,7 +1567,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                 AITranslator.markNoHistory(rci);
                 String inner = rci;
                 if (inner.startsWith("(") && inner.endsWith(")")) inner = inner.substring(1, inner.length() - 1).trim();
-                else if (inner.startsWith("锛�") && inner.endsWith("锛�")) inner = inner.substring(1, inner.length() - 1).trim();
+                else if (inner.startsWith("（") && inner.endsWith("）")) inner = inner.substring(1, inner.length() - 1).trim();
                 AITranslator.markNoHistory(inner);
             }
 
@@ -1624,7 +1624,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                         updateTranslateBtnText(btn);
                         btn.setAlpha(0.88f);
                         Toast.makeText(edit.getContext(),
-                                "鈿狅笍 澶辫触: " + (e.getMessage() != null ? e.getMessage() : "鏈煡閿欒"),
+                                "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
                                 Toast.LENGTH_LONG).show();
                     });
                 }
@@ -1701,11 +1701,11 @@ private static boolean readStealthConfig(String key, boolean def) {
         rawTv.setPadding(32, 24, 32, 24);
         rawTv.setLineSpacing(4f, 1.1f);
         sv.addView(rawTv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx).setTitle("AI 鍥炵瓟").setView(sv)
-                .setPositiveButton("澶嶅埗", (d, w) -> {
-                    try { ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", showText)); Toast.makeText(ctx, "宸插鍒�", Toast.LENGTH_SHORT).show(); } catch (Exception ignored) {}
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx).setTitle("AI 回答").setView(sv)
+                .setPositiveButton("复制", (d, w) -> {
+                    try { ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", showText)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show(); } catch (Exception ignored) {}
                 })
-                .setNegativeButton("鍏抽棴", null).create();
+                .setNegativeButton("关闭", null).create();
         dialog.show();
         if (dialog.getWindow() != null) {
             android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
@@ -1738,17 +1738,17 @@ private static boolean readStealthConfig(String key, boolean def) {
                     ViewGroup.LayoutParams.WRAP_CONTENT));
 
             android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
-                    .setTitle(refused ? "AI 鎷掔粷鎴栬Е鍙戝畨鍏ㄧ瓥鐣�" : "AI 鏈寜鏍煎紡杩斿洖")
+                    .setTitle(refused ? "AI 拒绝或触发安全策略" : "AI 未按格式返回")
                     .setView(sv)
-                    .setPositiveButton("閲嶈瘯", (d, w) -> edit.post(() -> btn.performClick()))
-                    .setNeutralButton("澶嶅埗鍘熸枃", (d, w) -> {
+                    .setPositiveButton("重试", (d, w) -> edit.post(() -> btn.performClick()))
+                    .setNeutralButton("复制原文", (d, w) -> {
                         try {
                             ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE))
                                     .setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", showText));
-                            Toast.makeText(ctx, "宸插鍒�", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show();
                         } catch (Exception ignored) {}
                     })
-                    .setNegativeButton("鍙栨秷", null)
+                    .setNegativeButton("取消", null)
                     .create();
 
             dialog.show();
@@ -1770,7 +1770,7 @@ private static boolean readStealthConfig(String key, boolean def) {
 
         if (at != null && !at.isEmpty()) {
             TextView header = new TextView(ctx);
-            header.setText("馃搵 鍒嗘瀽");
+            header.setText("📋 分析");
             header.setTextSize(12f);
             header.setTextColor(Color.parseColor("#999999"));
             header.setPadding(48, 12, 48, 4);
@@ -1794,7 +1794,7 @@ private static boolean readStealthConfig(String key, boolean def) {
         }
 
         TextView optHeader = new TextView(ctx);
-        optHeader.setText("馃挰 閫変竴涓彂閫侊紙鍏�" + items.size() + "涓増鏈級");
+        optHeader.setText("💬 选一个发送（共" + items.size() + "个版本）");
         optHeader.setTextSize(12f);
         optHeader.setTextColor(Color.parseColor("#999999"));
         optHeader.setPadding(48, 0, 48, 8);
@@ -1815,13 +1815,13 @@ private static boolean readStealthConfig(String key, boolean def) {
         root.addView(bs);
 
         String dn = (pn != null && !pn.isEmpty()) ? pn : currentPartnerName;
-        String title = (dn != null && !dn.isEmpty()) ? ("閫夌増鏈� - " + dn) : "閫夌増鏈�";
+        String title = (dn != null && !dn.isEmpty()) ? ("选版本 - " + dn) : "选版本";
 
         final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                 .setTitle(title)
                 .setView(root)
-                .setNegativeButton("鍙栨秷", (d, w) -> {})
-                .setPositiveButton("馃攧 鎹竴鎵�", (d, w) -> edit.post(() -> btn.performClick()))
+                .setNegativeButton("取消", (d, w) -> {})
+                .setPositiveButton("🔄 换一批", (d, w) -> edit.post(() -> btn.performClick()))
                 .create();
 
         for (int idx = 0; idx < items.size(); idx++) {
@@ -1894,7 +1894,7 @@ private static boolean readStealthConfig(String key, boolean def) {
                 uiHandler.post(() -> {
                     if (versionButton != null) {
                         versionButton.setVisibility(View.VISIBLE);
-                        versionButton.setText("鐗堟湰");
+                        versionButton.setText("版本");
                     }
                 });
 
@@ -1905,20 +1905,20 @@ private static boolean readStealthConfig(String key, boolean def) {
                 try {
                     ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE))
                             .setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", foreign));
-                    Toast.makeText(ctx, "鉁� 宸插鍒跺埌鍓创鏉�", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ctx, "✅ 已复制到剪贴板", Toast.LENGTH_SHORT).show();
                 } catch (Exception ignored) {}
                 return true;
             });
 
             cont.addView(card);
         }
-         // ================= 鎶樺彔寮忓揩鎹峰井璋� =================
+         // ================= 折叠式快捷微调 =================
         android.widget.LinearLayout quickHeader = new android.widget.LinearLayout(ctx);
         quickHeader.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         quickHeader.setPadding(36, 14, 36, 14);
         quickHeader.setBackgroundColor(Color.parseColor("#E9ECEF"));
         final TextView quickTitle = new TextView(ctx);
-        quickTitle.setText("鈻� 鈿� 蹇嵎寰皟 (鐐瑰嚮灞曞紑)");
+        quickTitle.setText("▶ ⚡ 快捷微调 (点击展开)");
         quickTitle.setTextSize(13f);
         quickTitle.setTextColor(Color.parseColor("#0B5ED7"));
         quickTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -1930,7 +1930,7 @@ private static boolean readStealthConfig(String key, boolean def) {
         quickBody.setVisibility(View.GONE);
         quickBody.setPadding(0, 8, 0, 8);
 
-        // 浣跨敤妯悜婊戝姩灞傦紝闃叉鎸夐挳琚尋鍑哄睆骞�
+        // 使用横向滑动层，防止按钮被挤出屏幕
         android.widget.HorizontalScrollView hsv = new android.widget.HorizontalScrollView(ctx);
         hsv.setHorizontalScrollBarEnabled(false);
         hsv.setBackgroundColor(Color.parseColor("#F5F5F5"));
@@ -1941,12 +1941,12 @@ private static boolean readStealthConfig(String key, boolean def) {
         hsv.addView(quickBar);
 
         final android.widget.CheckBox checkBoxOneTime = new android.widget.CheckBox(ctx);
-        checkBoxOneTime.setText("浠呮湰娆� (涓嶆薄鏌撳巻鍙茶蹇�)");
+        checkBoxOneTime.setText("仅本次 (不污染历史记忆)");
         checkBoxOneTime.setTextSize(12f);
         checkBoxOneTime.setTextColor(Color.parseColor("#666666"));
         checkBoxOneTime.setPadding(48, 10, 36, 10);
         
-        // 浣跨敤 SharedPreferences 姘镐箙璁板繂浣犵殑鍕鹃€夌姸鎬�
+        // 使用 SharedPreferences 永久记忆你的勾选状态
         final android.content.SharedPreferences sp = ctx.getSharedPreferences("htai_quick_prefs", android.content.Context.MODE_PRIVATE);
         checkBoxOneTime.setChecked(oneTime || sp.getBoolean("always_one_time", false));
 
@@ -1979,14 +1979,14 @@ private static boolean readStealthConfig(String key, boolean def) {
 
             tagBtn.setOnClickListener(v2 -> {
                 String newPrompt = origChinese;
-                if (newPrompt.endsWith("锛�") || newPrompt.endsWith(")")) {
-                    newPrompt = newPrompt.replaceAll("[锛圽\(][^锛塡\)]*[锛塡\)]$", "").trim();
+                if (newPrompt.endsWith("）") || newPrompt.endsWith(")")) {
+                    newPrompt = newPrompt.replaceAll("[（\\(][^）\\)]*[）\\)]$", "").trim();
                 }
-                // 鈥滅伀鍔涘叏寮€鈥濅韩鍙楃粷瀵硅眮鍏嶆潈锛屽繀瀹氭墦涓娾€滀竴娆℃€р€濇爣绛�
-                if (tag.contains("鐏姏鍏ㄥ紑") || checkBoxOneTime.isChecked()) {
-                    newPrompt = "涓€娆℃€э細" + newPrompt + " 锛�" + tagContent + "锛�";
+                // “火力全开”享受绝对豁免权，必定打上“一次性”标签
+                if (tag.contains("火力全开") || checkBoxOneTime.isChecked()) {
+                    newPrompt = "一次性：" + newPrompt + " （" + tagContent + "）";
                 } else {
-                    newPrompt = newPrompt + " 锛�" + tagContent + "锛�";
+                    newPrompt = newPrompt + " （" + tagContent + "）";
                 }
                 edit.setText(newPrompt);
                 edit.setSelection(newPrompt.length());
@@ -1999,16 +1999,16 @@ private static boolean readStealthConfig(String key, boolean def) {
         quickBody.addView(hsv);
         cont.addView(quickBody);
         
-        // 寮哄埗鎶婂閫夋鍔犲湪鏈€澶栧眰锛屾案杩滃彲瑙佷笉琚姌鍙�
+        // 强制把复选框加在最外层，永远可见不被折叠
         cont.addView(checkBoxOneTime);
 
         quickHeader.setOnClickListener(v2 -> {
             if (quickBody.getVisibility() == View.GONE) {
                 quickBody.setVisibility(View.VISIBLE);
-                quickTitle.setText("鈻� 鈿� 蹇嵎寰皟 (鐐瑰嚮鎶樺彔)");
+                quickTitle.setText("▼ ⚡ 快捷微调 (点击折叠)");
             } else {
                 quickBody.setVisibility(View.GONE);
-                quickTitle.setText("鈻� 鈿� 蹇嵎寰皟 (鐐瑰嚮灞曞紑)");
+                quickTitle.setText("▶ ⚡ 快捷微调 (点击展开)");
             }
         });
 
@@ -2134,25 +2134,25 @@ private static void hookSendMessage(ClassLoader cl) {
                                         if (textBean2 != null) {
                                             XposedHelpers.callMethod(textBean2, "setText", originalForeign);
                                             XposedHelpers.callMethod(replyInfo, "setMsgContent", textBean2);
-                                            log("寮曠敤鏇挎崲鎴愬姛: 涓枃 鈫� " + originalForeign);
+                                            log("引用替换成功: 中文 → " + originalForeign);
                                         }
                                     }
                                 } catch (Throwable t) {
-                                    log("寮曠敤鏇挎崲澶辫触: " + t.getMessage());
+                                    log("引用替换失败: " + t.getMessage());
                                 }
                                 quote = originalForeign;
                             }
 
                             pendingSendQuote = quote.trim();
                             pendingSendChatId = currentChatId;
-                            log("鎹曡幏鍙戦€佸紩鐢�: " + pendingSendQuote);
+                            log("捕获发送引用: " + pendingSendQuote);
                         } catch (Throwable t) {
-                            log("sendMessage寮曠敤鎹曡幏澶辫触: " + t.getMessage());
+                            log("sendMessage引用捕获失败: " + t.getMessage());
                         }
                     }
                 });
     } catch (Throwable t) {
-        log("hookSendMessage澶辫触: " + t.getMessage());
+        log("hookSendMessage失败: " + t.getMessage());
     }
 }
     private static String extractSelectedReplyText(Object replyInfo) {

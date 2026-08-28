@@ -147,7 +147,11 @@ private static void callSetText(Object bean, String text) {
         try {
             XposedHelpers.callMethod(bean, "C", text);
         } catch (Throwable t2) {
-            log("setText fail: " + t2.getMessage());
+            try {
+                XposedHelpers.callMethod(bean, "J", text);
+            } catch (Throwable t3) {
+                log("setText fail: " + t3.getMessage());
+            }
         }
     }
 }
@@ -170,7 +174,11 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         try {
             m = bean.getClass().getMethod("p");
         } catch (Throwable t2) {
-            return null;
+            try {
+                m = bean.getClass().getMethod("u");
+            } catch (Throwable t3) {
+                return null;
+            }
         }
     }
     mBeanGetText = m;

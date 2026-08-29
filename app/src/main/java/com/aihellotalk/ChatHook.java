@@ -381,69 +381,97 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     }
 
     private static void hookInputReplyBar(ClassLoader cl) {
-        try {
-            Class<?> replyBar = XposedHelpers.findClassIfExists("kr0.d", cl);
-            if (replyBar != null) {
-                XposedBridge.hookAllMethods(replyBar, "b", new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam p) {
-                        resetSelectedReply();
-                    }
+    // 新版 6.4.0：ReplyMessageView.c0(HTIMMessage) 是回复条绑定数据的方法
+    try {
+        Class<?> replyView = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.widget.ReplyMessageView", cl);
+        if (replyView != null) {
+            XposedBridge.hookAllMethods(replyView, "c0", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    resetSelectedReply();
+                }
 
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) {
-                        try {
-                            Object msg = (p.args != null && p.args.length > 0) ? p.args[0] : null;
-                            applySelectedReply(msg);
-                        } catch (Throwable t) {
-                            log("inputReplyBar.b hook error: " + t.getMessage());
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    try {
+                        if (p.args != null && p.args.length > 0 && p.args[0] != null) {
+                            applySelectedReply(p.args[0]);
                         }
+                    } catch (Throwable t) {
+                        log("ReplyMessageView.c0 hook error: " + t.getMessage());
                     }
-                });
-
-                XposedBridge.hookAllMethods(replyBar, "d", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) {
-                        try {
-                            if (p.args != null && p.args.length > 0
-                                    && p.args[0] instanceof Boolean
-                                    && !((Boolean) p.args[0])) {
-                                resetSelectedReply();
-                            }
-                        } catch (Throwable ignored) {}
-                    }
-                });
-            }
-        } catch (Throwable t) {
-            log("hookInputReplyBar kr0.d fail: " + t.getMessage());
+                }
+            });
+            log("ReplyMessageView.c0 hook 注册成功");
         }
-
-        try {
-            Class<?> replyHolder = XposedHelpers.findClassIfExists(
-                    "com.hellotalk.talk.detail.widget.reply.ReplyHolderView", cl);
-            if (replyHolder != null) {
-                XposedBridge.hookAllMethods(replyHolder, "setImageMessageImage", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) {
-                        try {
-                            if (p.args == null || p.args.length < 1) return;
-                            String lp = bruteFindLocalImagePathFromBean(p.args[0]);
-                            if (lp != null && new File(lp).exists()) {
-                                currentQuotedImagePath = lp;
-                                currentQuotedImageMissing = false;
-                            } else if ("image".equals(selectedReplyMsgType)
-                                    || "photo".equals(selectedReplyMsgType)) {
-                                currentQuotedImagePath = null;
-                                currentQuotedImageMissing = true;
-                            }
-                        } catch (Throwable ignored) {}
-                    }
-                });
-            }
-        } catch (Throwable t) {
-            log("hookInputReplyBar ReplyHolderView fail: " + t.getMessage());
-        }
+    } catch (Throwable t) {
+        log("ReplyMessageView hook fail: " + t.getMessage());
     }
+
+    // 旧版 5.7.0 兜底：kr0.d
+    try {
+        Class<?> replyBar = XposedHelpers.findClassIfExists("kr0.d", cl);
+        if (replyBar != null) {
+            XposedBridge.hookAllMethods(replyBar, "b", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    resetSelectedReply();
+                }
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    try {
+                        Object msg = (p.args != null && p.args.length > 0) ? p.args[0] : null;
+                        applySelectedReply(msg);
+                    } catch (Throwable t) {
+                        log("inputReplyBar.b hook error: " + t.getMessage());
+                    }
+                }
+            });
+            XposedBridge.hookAllMethods(replyBar, "d", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    try {
+                        if (p.args != null && p.args.length > 0
+                                && p.args[0] instanceof Boolean
+                                && !((Boolean) p.args[0])) {
+                            resetSelectedReply();
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            });
+        }
+    } catch (Throwable t) {
+        log("hookInputReplyBar kr0.d fail: " + t.getMessage());
+    }
+
+    // ReplyHolderView 的图片处理保持不动
+    try {
+        Class<?> replyHolder = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.widget.reply.ReplyHolderView", cl);
+        if (replyHolder != null) {
+            XposedBridge.hookAllMethods(replyHolder, "setImageMessageImage", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    try {
+                        if (p.args == null || p.args.length < 1) return;
+                        String lp = bruteFindLocalImagePathFromBean(p.args[0]);
+                        if (lp != null && new File(lp).exists()) {
+                            currentQuotedImagePath = lp;
+                            currentQuotedImageMissing = false;
+                        } else if ("image".equals(selectedReplyMsgType)
+| "photo".equals(selectedReplyMsgType)) {
+                            currentQuotedImagePath = null;
+                            currentQuotedImageMissing = true;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            });
+        }
+    } catch (Throwable t) {
+        log("hookInputReplyBar ReplyHolderView fail: " + t.getMessage());
+    }
+}
 
     private static void resetSelectedReply() {
         selectedReplyValid = false;

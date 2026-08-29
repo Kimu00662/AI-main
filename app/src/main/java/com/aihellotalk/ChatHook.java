@@ -1643,44 +1643,86 @@ private static void setBeanField(Object bean, String text) {
     }
 
     private static String getDynamicLangCode(int nl) {
-        if (langCodeMethod != null) {
-            try {
-                String r = (String) langCodeMethod.invoke(null, nl);
-                return r != null ? r.toLowerCase() : null;
-            } catch (Exception ignored) {}
-        }
-        return null;
+    // 新版 av.a 可能不存在，直接用数字映射
+    switch (nl) {
+        case 1: return "en";
+        case 2: return "ja";
+        case 3: return "ko";
+        case 4: return "zh";
+        case 5: return "ru";
+        case 6: return "fr";
+        case 7: return "es";
+        case 8: return "de";
+        case 9: return "it";
+        case 10: return "pt";
+        case 11: return "ar";
+        case 12: return "tr";
+        case 13: return "nl";
+        case 14: return "pl";
+        case 15: return "th";
+        case 16: return "vi";
+        case 17: return "id";
+        case 18: return "hi";
+        case 19: return "uk";
+        default: return "en";
     }
+}
 
     private static String mapNationalityToLang(String nat) {
-        if (nat == null || nat.isEmpty()) return null;
-        switch (nat) {
-            case "china": case "taiwan": case "hong kong": case "macau": case "singapore": return "zh";
-            case "russia": case "belarus": case "kazakhstan": case "kyrgyzstan": return "ru";
-            case "japan": return "ja";
-            case "korea": case "south korea": return "ko";
-            case "france": case "belgium": case "switzerland": case "canada": return "fr";
-            case "germany": case "austria": return "de";
-            case "spain": case "mexico": case "argentina": case "colombia": case "peru":
-            case "chile": case "venezuela": case "ecuador": case "bolivia": case "paraguay":
-            case "uruguay": case "costa rica": case "panama": case "nicaragua": case "honduras":
-            case "el salvador": case "guatemala": case "cuba": case "dominican republic": case "puerto rico": return "es";
-            case "italy": return "it";
-            case "portugal": case "brazil": return "pt";
-            case "arabia": case "egypt": case "saudi arabia": case "united arab emirates":
-            case "morocco": case "algeria": case "tunisia": case "jordan": case "lebanon":
-            case "iraq": case "kuwait": case "qatar": case "oman": case "bahrain": return "ar";
-            case "turkey": return "tr";
-            case "netherlands": return "nl";
-            case "poland": return "pl";
-            case "vietnam": return "vi";
-            case "thailand": return "th";
-            case "indonesia": return "id";
-            case "india": return "hi";
-            case "ukraine": return "uk";
-            default: return null;
-        }
+    if (nat == null || nat.isEmpty()) return null;
+    switch (nat) {
+        // 全名
+        case "china": case "taiwan": case "hong kong": case "macau": case "singapore": return "zh";
+        case "russia": case "belarus": case "kazakhstan": case "kyrgyzstan": return "ru";
+        case "japan": return "ja";
+        case "korea": case "south korea": return "ko";
+        case "france": case "belgium": case "switzerland": case "canada": return "fr";
+        case "germany": case "austria": return "de";
+        case "spain": case "mexico": case "argentina": case "colombia": case "peru":
+        case "chile": case "venezuela": case "ecuador": case "bolivia": case "paraguay":
+        case "uruguay": case "costa rica": case "panama": case "nicaragua": case "honduras":
+        case "el salvador": case "guatemala": case "cuba": case "dominican republic": case "puerto rico": return "es";
+        case "italy": return "it";
+        case "portugal": case "brazil": return "pt";
+        case "arabia": case "egypt": case "saudi arabia": case "united arab emirates":
+        case "morocco": case "algeria": case "tunisia": case "jordan": case "lebanon":
+        case "iraq": case "kuwait": case "qatar": case "oman": case "bahrain": return "ar";
+        case "turkey": return "tr";
+        case "netherlands": return "nl";
+        case "poland": return "pl";
+        case "vietnam": return "vi";
+        case "thailand": return "th";
+        case "indonesia": return "id";
+        case "india": return "hi";
+        case "ukraine": return "uk";
+        // ISO 简码（新版 HelloTalk 返回的是这些）
+        case "cn": case "tw": case "hk": case "mo": case "sg": return "zh";
+        case "ru": case "by": case "kz": case "kg": return "ru";
+        case "jp": return "ja";
+        case "kr": case "kp": return "ko";
+        case "fr": case "be": case "ch": case "ca": return "fr";
+        case "de": case "at": return "de";
+        case "es": case "mx": case "ar": case "co": case "pe":
+        case "cl": case "ve": case "ec": case "bo": case "py":
+        case "uy": case "cr": case "pa": case "ni": case "hn":
+        case "sv": case "gt": case "cu": case "do": case "pr": return "es";
+        case "it": return "it";
+        case "pt": case "br": return "pt";
+        case "sa": case "eg": case "ae": case "ma": case "dz":
+        case "tn": case "jo": case "lb": case "iq": case "kw":
+        case "qa": case "om": case "bh": return "ar";
+        case "tr": return "tr";
+        case "nl": return "nl";
+        case "pl": return "pl";
+        case "vn": return "vi";
+        case "th": return "th";
+        case "id": return "id";
+        case "in": return "hi";
+        case "ua": return "uk";
+        default: return null;
     }
+}
+
     private static void showAnswerDialog(EditText edit, String answer) {
         android.content.Context ctx = edit.getContext();
         final String showText = (answer == null) ? "" : answer.trim().replaceAll("\\*+", "");

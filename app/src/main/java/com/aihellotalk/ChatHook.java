@@ -541,47 +541,62 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     }
 
     private static String extractMessageTextByType(Object msg, String msgType) {
-        if (msg == null) return null;
-        if (!"text".equals(msgType) && !"translate".equals(msgType)) return null;
+    if (msg == null) return null;
+    if (!"text".equals(msgType) && !"translate".equals(msgType)) return null;
 
-        try {
-            ensureMsgMethods(msg);
+    try {
+        ensureMsgMethods(msg);
 
-            if ("text".equals(msgType)) {
-                Class<?> textBean = XposedHelpers.findClassIfExists(
-                        "com.hellotalk.talk.detail.delegate.text.IMTextBean",
-                        hostClassLoader);
-                if (textBean == null) return null;
+        if ("text".equals(msgType)) {
+            Class<?> textBean = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.text.IMTextBean",
+                    hostClassLoader);
+            if (textBean == null) return null;
 
-                Object bean = invokeQuiet(mGetMsgContentTyped, msg, textBean, false); log("extractText bean=" + bean);
-if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, textBean); log("extractText bean2=" + bean);
-                if (bean == null) return null;
+            Object bean = invokeQuiet(mGetMsgContentTyped, msg, textBean, false);
+            if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, textBean);
+            if (bean == null) return null;
 
-                Object t = invokeQuiet(ensureBeanGetText(bean), bean);
-                return (t != null) ? String.valueOf(t) : null;
+            // 直接反射读字段，绕开方法名混淆
+            Object t = readFieldQuiet(bean, "text");
+            if (t == null) t = readFieldQuiet(bean, "reportText");
+            if (t == null) {
+                Method m = ensureBeanGetText(bean);
+                t = invokeQuiet(m, bean);
             }
+            return (t != null) ? String.valueOf(t) : null;
+        }
 
-            if ("translate".equals(msgType)) {
-                Class<?> transBean = XposedHelpers.findClassIfExists(
-                        "com.hellotalk.talk.detail.delegate.translate.IMTranslateBean",
-                        hostClassLoader);
-                if (transBean == null) return null;
+        if ("translate".equals(msgType)) {
+            Class<?> transBean = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.translate.IMTranslateBean",
+                    hostClassLoader);
+            if (transBean == null) return null;
 
-                Object bean = invokeQuiet(mGetMsgContentTyped, msg, transBean, false);
-if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, transBean);
-                if (bean == null) return null;
+            Object bean = invokeQuiet(mGetMsgContentTyped, msg, transBean, false);
+            if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, transBean);
+            if (bean == null) return null;
 
-                try {
-                    Object t = XposedHelpers.callMethod(bean, "getSrcText");
-                    return (t != null) ? String.valueOf(t) : null;
-                } catch (Throwable ignored) {
-                    return null;
-                }
+            Object t = readFieldQuiet(bean, "srcText");
+            if (t == null) {
+                try { t = XposedHelpers.callMethod(bean, "getSrcText"); } catch (Throwable ignored) {}
             }
-        } catch (Throwable ignored) {}
+            return (t != null) ? String.valueOf(t) : null;
+        }
+    } catch (Throwable ignored) {}
 
+    return null;
+}
+
+private static Object readFieldQuiet(Object obj, String fieldName) {
+    try {
+        Field f = obj.getClass().getDeclaredField(fieldName);
+        f.setAccessible(true);
+        return f.get(obj);
+    } catch (Throwable t) {
         return null;
     }
+}
 
     private static String describeNonTextMessage(String mt, boolean isMine) {
         String who = isMine ? "我" : "对方";

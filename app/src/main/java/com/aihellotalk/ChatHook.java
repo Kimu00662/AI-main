@@ -1004,6 +1004,7 @@ new Thread(() -> {
         protected void afterHookedMethod(MethodHookParam p) {
             try {
                 Object msg = p.thisObject;
+                log("hookRecv FIRED!");
                 ensureMsgMethods(msg);
 
                 Object iso = invokeQuiet(mIsSender, msg);
@@ -1120,7 +1121,7 @@ new Thread(() -> {
                         try {
                             String display = AITranslator.analyzePureSymbol(ft3, fc3);
                             if (display != null && !display.isEmpty() && !display.equals(ft3)) {
-                                try { callSetText(fb3, display); } catch (Exception ignored) {}
+                                try { setBeanField(fb3, display); } catch (Exception ignored) {}
                             }
                         } catch (Exception ignored) {}
                     }).start();
@@ -1139,7 +1140,7 @@ new Thread(() -> {
                         final String ftk = text;
                         new Thread(() -> {
                             try { Thread.sleep(150); } catch (InterruptedException ignored) {}
-                            try { callSetText(fbk, ftk); } catch (Exception ignored) {}
+                            try { setBeanField(fbk, ftk); } catch (Exception ignored) {}
                         }).start();
                         return;
                     }
@@ -1160,9 +1161,8 @@ new Thread(() -> {
                                 if (zh != null && !zh.isEmpty()) {
                                     AITranslator.cacheResult(fm2, ft2, zh);
                                     AITranslator.rememberDraftIfAbsent(ft2, zh);
-
                                     reverseRetryMap.remove(fm2);
-                                    try { callSetText(fb2, ft2); } catch (Exception ignored) {}
+                                    try { setBeanField(fb2, ft2); } catch (Exception ignored) {}
                                 }
                             } catch (Exception ignored) {}
                         });
@@ -1173,7 +1173,7 @@ new Thread(() -> {
                 String[] cached = AITranslator.getCached(mid);
                 if (cached != null && cached[0] != null && cached[0].equals(text)) {
                     try {
-                        callSetText(bean, cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
+                        setBeanField(bean, cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
                     } catch (Exception ignored) {}
                     return;
                 }
@@ -1196,11 +1196,10 @@ new Thread(() -> {
                                 t = AITranslator.toChinese(ft, chatId);
                             }
                         }
-
                         if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
                             AITranslator.cacheResult(fm, ft, t);
                             try {
-                                callSetText(fb, t.replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
+                                setBeanField(fb, t.replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
                             } catch (Exception ignored) {}
                         }
                     } catch (Exception ignored) {
@@ -1220,12 +1219,65 @@ new Thread(() -> {
         log("hookRecv old fail: " + t.getMessage());
     }
 
-    // 新版 6.4.0（R8混淆后 getMessageContent → B，参数只剩 Class）
+    // 新版 6.4.0
     try {
         XposedHelpers.findAndHookMethod(hm, "B", Class.class, recvHook);
     } catch (Throwable t) {
         log("hookRecv new B fail: " + t.getMessage());
     }
+
+    // 新版兜底：hook 文本渲染器 Lzk4.i (bindData)，直接改 reportText 字段
+    try {
+        Class<?> textDelegate = cl.loadClass("zk4");
+        XposedBridge.hookAllMethods(textDelegate, "i", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                try {
+                    if (p.args == null || p.args.length < 2) return;
+                    if (!(p.args[0] instanceof com.hellotalk.lib.im.entity.HTIMMessage)) return;
+                    Object msg = p.args[0];
+                    Object bean = p.args[1];
+                    if (bean == null) return;
+                    log("zk4.i FIRED!");
+                    ensureMsgMethods(msg);
+                    Object iso = invokeQuiet(mIsSender, msg);
+                    boolean isMine = (iso instanceof Boolean) && ((Boolean) iso);
+                    if (isMine) return;
+                    // 先读缓存，有就直接改 reportText
+                    String text = (String) invokeQuiet(ensureBeanGetText(bean), bean);
+                    if (text == null || text.isEmpty()) return;
+                    Object mio = invokeQuiet(mGetMsgId, msg);
+                    String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
+                    String[] cached = AITranslator.getCached(mid);
+                    if (cached != null && cached[0] != null && cached[0].equals(text)) {
+                        setBeanField(bean, cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
+                    }
+                } catch (Throwable ignored) {}
+            }
+        });
+        log("zk4.i hook 注册成功");
+    } catch (Throwable t) {
+        log("zk4.i hook 失败: " + t.getMessage());
+    }
+}
+
+// 直接反射写字段，绕过所有方法名混淆
+private static void setBeanField(Object bean, String text) {
+    try {
+        XposedHelpers.callMethod(bean, "setText", text);
+        return;
+    } catch (Throwable t1) {}
+    try {
+        Field f = bean.getClass().getDeclaredField("reportText");
+        f.setAccessible(true);
+        f.set(bean, text);
+        return;
+    } catch (Throwable t2) {}
+    try {
+        Field f = bean.getClass().getDeclaredField("text");
+        f.setAccessible(true);
+        f.set(bean, text);
+    } catch (Throwable t3) {}
 }
 
     private static void hookBtnOld(ClassLoader cl) throws Exception {

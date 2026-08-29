@@ -221,7 +221,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
             langCodeMethod = avClass.getMethod("a", int.class);
         } catch (Throwable ignored) {}
 
-        try { hookTextViewRender(cl); } catch (Throwable t) { log("render hook fail"); }
+        // try { hookTextViewRender(cl); } catch (Throwable t) { log("render hook fail"); }
         try { hookClipboard(cl); } catch (Throwable ignored) {}
         try { hookBubbleFlip(cl); } catch (Throwable ignored) {}
         try { hookStartChat(cl); } catch (Throwable ignored) {}
@@ -694,16 +694,20 @@ private static void hookTextViewRender(ClassLoader cl) {
                 if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
                 // 先查缓存
-                String d = AITranslator.getDraftFuzzy(s);
-                if (d == null) d = AITranslator.getChineseByForeign(s);
-                if (d != null && !d.equals(s)) {
-                    param.args[0] = d + " 🔄";
-                    return;
-                }
-
+                // 对方消息：查翻译缓存，有就替换
+String d = AITranslator.getChineseByForeign(s);
+if (d != null && !d.equals(s)) {
+    param.args[0] = d + " 🔄";
+    return;
+}
+// 自己发的消息：只加 🌐，不替换
+d = AITranslator.getDraftFuzzy(s);
+if (d != null && !d.equals(s)) {
+    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
+    return;
+}
                 // 快速跳过中文、纯数字、短文本
                 if (s.length() < 3) return;
-                if (AITranslator.isChineseOnly(s)) return;
                 if (AITranslator.containsJapanese(s)) return;
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
 

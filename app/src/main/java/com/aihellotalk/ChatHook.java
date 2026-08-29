@@ -1280,16 +1280,6 @@ private static void setBeanField(Object bean, String text) {
     } catch (Throwable t3) {}
 }
 
-    private static void hookBtnOld(ClassLoader cl) throws Exception {
-        Class<?> bc = XposedHelpers.findClass("com.hellotalk.chat.ui.ChatInputBoxView", cl);
-        XposedBridge.hookAllConstructors(bc, new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam p) {
-                ((View) p.thisObject).postDelayed(() -> tryAddBtn((View) p.thisObject), 2000);
-            }
-        });
-    }
-
     private static void hookBtnNew(ClassLoader cl) throws Exception {
         Class<?> oc = XposedHelpers.findClass(
                 "com.hellotalk.talk.detail.widget.input.ChatInputUIOperate", cl);

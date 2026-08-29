@@ -674,13 +674,15 @@ private static boolean readStealthConfig(String key, boolean def) {
     return def;
 }
 
-    private static void hookTextViewRender(ClassLoader cl) {
+private static void hookTextViewRender(ClassLoader cl) {
     if (htTextViewClass == null) return;
 
     XC_MethodHook renderLogic = new XC_MethodHook() {
         @Override
         protected void beforeHookedMethod(MethodHookParam param) {
             try {
+                long _t0 = System.currentTimeMillis();
+
                 if (param.thisObject instanceof EditText) return;
                 if (!htTextViewClass.isInstance(param.thisObject)) return;
 
@@ -699,24 +701,34 @@ private static boolean readStealthConfig(String key, boolean def) {
                     return;
                 }
 
-                // 缓存没有，启动翻译，下次显示时就能命中
-                if (AITranslator.hasAnyLetterOrDigit(s) && !AITranslator.isChineseOnly(s) && !AITranslator.containsJapanese(s)) {
-                    final String ft = s;
-                    final TextView tv = (TextView) param.thisObject;
-                    new Thread(() -> {
-                        try {
-                            String t = AITranslator.toChinese(ft, currentChatId);
-                            if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
-                                AITranslator.cacheResult("tv_" + ft.hashCode(), ft, t);
-                                tv.post(() -> {
-                                    try {
-                                        tv.setText(t + " 🔄");
-                                    } catch (Throwable ignored) {}
-                                });
-                            }
-                        } catch (Throwable ignored) {}
-                    }).start();
-                }
+                // 快速跳过中文、纯数字、短文本
+                if (s.length() < 3) return;
+                if (AITranslator.isChineseOnly(s)) return;
+                if (AITranslator.containsJapanese(s)) return;
+                if (!AITranslator.hasAnyLetterOrDigit(s)) return;
+
+                // 启动翻译（去重 + 线程池）
+                final String ft = s;
+                final String key = "tv_" + ft;
+                final TextView tv = (TextView) param.thisObject;
+                if (!translating.add(key)) return;
+                reverseTranslateExecutor.execute(() -> {
+                    try {
+                        String t = AITranslator.toChinese(ft, currentChatId);
+                        if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
+                            AITranslator.cacheResult(key, ft, t);
+                            tv.post(() -> {
+                                try { tv.setText(t + " 🔄"); } catch (Throwable ignored) {}
+                            });
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        translating.remove(key);
+                    }
+                });
+
+                long _dt = System.currentTimeMillis() - _t0;
+                if (_dt > 50) log("renderHook SLOW: " + _dt + "ms");
             } catch (Throwable ignored) {}
         }
     };

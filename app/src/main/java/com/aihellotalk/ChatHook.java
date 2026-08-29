@@ -932,45 +932,29 @@ new Thread(() -> {
 }
 
     private static void updateFromChatUser(Object chatUser) {
-        try {
-            int nl = (Integer) XposedHelpers.callMethod(chatUser, "getNativeLang");
-            String nat = (String) XposedHelpers.callMethod(chatUser, "getNationality");
-            String nn = (String) XposedHelpers.callMethod(chatUser, "getNickName");
-            String un = (String) XposedHelpers.callMethod(chatUser, "getUserName");
+    try {
+        int nl = (Integer) callObjMethod(chatUser, "getNativeLang", "T");
+        String nat = (String) callObjMethod(chatUser, "getNationality", "S");
+        String nn = (String) callObjMethod(chatUser, "getNickName", "R");
+        String un = (String) callObjMethod(chatUser, "getUserName", "l0");
 
-            latestNativeLang = nl;
-            latestNationality = nat != null ? nat : "";
-            latestPartnerName = (nn != null && !nn.isEmpty()) ? nn : (un != null ? un : "");
+        latestNativeLang = nl;
+        latestNationality = nat != null ? nat : "";
+        latestPartnerName = (nn != null && !nn.isEmpty()) ? nn : (un != null ? un : "");
 
-            if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
+        if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
 
-            if (!currentChatId.isEmpty() && !"0".equals(currentChatId)) {
-                AITranslator.updateFriendNationality(currentChatId, latestNationality);
-            }
-            log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
-        } catch (Throwable ignored) {}
-    }
+        if (!currentChatId.isEmpty() && !"0".equals(currentChatId)) {
+            AITranslator.updateFriendNationality(currentChatId, latestNationality);
+        }
+        log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
+    } catch (Throwable ignored) {}
+}
 
-    private static void hookLang(ClassLoader cl) throws Exception {
-        Class<?> vm = XposedHelpers.findClass("com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl);
-        Field uf = vm.getDeclaredField("chatUser");
-        uf.setAccessible(true);
-
-        Class<?> hm = cl.loadClass("com.hellotalk.lib.im.entity.HTIMMessage");
-
-        XposedHelpers.findAndHookMethod(vm, "generateChatMessage", hm, boolean.class,
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) {
-                        try {
-                            Object u = uf.get(p.thisObject);
-                            if (u != null) {
-                                partnerLang = (Integer) XposedHelpers.callMethod(u, "getNativeLang");
-                            }
-                        } catch (Throwable ignored) {}
-                    }
-                });
-    }
+private static Object callObjMethod(Object obj, String oldName, String newName) {
+    try { return XposedHelpers.callMethod(obj, oldName); }
+    catch (Throwable t) { return XposedHelpers.callMethod(obj, newName); }
+}
 
     private static void hookImageRenderLayer(ClassLoader cl) {
         try {

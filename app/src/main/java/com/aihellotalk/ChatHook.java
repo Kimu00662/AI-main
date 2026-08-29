@@ -39,6 +39,9 @@ public class ChatHook {
     private static final String DEFAULT_REPLY_LANG = "en";
 
     private static volatile String currentChatId = "0";
+    // ===== 新版 HelloTalk：当前真实聊天页面对象 =====
+// 只给新版实时消息列表读取使用，旧版不会使用。
+private static volatile Object currentChatDetailFragment = null;
     private static volatile int currentChatType = 1;
     private static volatile String currentPartnerName = "";
     private static volatile int partnerLang = 1;
@@ -610,7 +613,150 @@ private static boolean refreshSelectedReplyFromNewController() {
         currentQuotedImagePath = null;
         currentQuotedImageMissing = false;
     }
+// ===== 新版 HelloTalk：直接读取当前聊天页面真实消息 =====
+//
+// 新版不再依赖 hookRecv / recordOutgoing 写入的历史文件。
+// 点击“译”时直接从当前 ChatDetailFragment 的 MessageAdapter
+// 读取屏幕所在会话里的真实消息。
+//
+// 旧版没有 currentChatDetailFragment，因此完全不会走这里。
+private static String buildNewLiveChatContext(int maxCount) {
 
+    if (!newReplyControllerDetected) {
+        return null;
+    }
+
+    Object fragment = currentChatDetailFragment;
+
+    if (fragment == null) {
+        log("新版实时上下文: currentChatDetailFragment=null");
+        return null;
+    }
+
+    try {
+        // 逆向新版：
+        // ChatDetailFragment.L3() -> 当前聊天 MessageAdapter
+        Object adapter = XposedHelpers.callMethod(fragment, "L3");
+
+        if (adapter == null) {
+            log("新版实时上下文: L3() adapter=null");
+            return null;
+        }
+
+        // 新版 MessageAdapter.k() -> ArrayList<v84>
+        Object listObj = XposedHelpers.callMethod(adapter, "k");
+
+        if (!(listObj instanceof java.util.List)) {
+            log("新版实时上下文: adapter.k() 不是 List: "
+                    + (listObj == null ? "null" : listObj.getClass().getName()));
+            return null;
+        }
+
+        java.util.List<?> items = (java.util.List<?>) listObj;
+
+        if (items.isEmpty()) {
+            log("新版实时上下文: 消息列表为空");
+            return null;
+        }
+
+        int wanted = maxCount;
+        if (wanted < 5) wanted = 5;
+        if (wanted > 80) wanted = 80;
+
+        int start = Math.max(0, items.size() - wanted);
+
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("【程序直接读取的当前 HelloTalk 实时对话】\n");
+        sb.append("说明：以下内容直接来自当前聊天页面的真实消息列表，")
+          .append("不是模块缓存，也不是聊天ID。")
+          .append("回答时应优先相信这里的内容。\n");
+
+        int added = 0;
+
+        for (int i = start; i < items.size(); i++) {
+
+            Object wrapper = items.get(i);
+            if (wrapper == null) continue;
+
+            Object msg;
+
+            try {
+                // 新版 v84.a() -> HTIMMessage
+                msg = XposedHelpers.callMethod(wrapper, "a");
+            } catch (Throwable e) {
+                // 极端情况下 adapter.k() 可能直接给 HTIMMessage
+                msg = wrapper;
+            }
+
+            if (msg == null) continue;
+
+            try {
+                ensureMsgMethods(msg);
+
+                Object mineObj = invokeQuiet(mIsSender, msg);
+                boolean mine = mineObj instanceof Boolean
+                        && ((Boolean) mineObj);
+
+                Object typeObj = invokeQuiet(mGetMsgType, msg);
+                String msgType = typeObj != null
+                        ? String.valueOf(typeObj)
+                        : "";
+
+                String content = extractMessageTextByType(msg, msgType);
+
+                // 目前实时上下文优先读取真正文字消息。
+                // 图片/语音以后再单独完善，先别影响已有功能。
+                if (content == null || content.trim().isEmpty()) {
+                    continue;
+                }
+
+                content = content.trim();
+
+                // 防止错误字段再次把当前 chatId 当聊天正文。
+                if (currentChatId != null
+                        && currentChatId.equals(content)) {
+                    continue;
+                }
+
+                // 不把括号问答本身重新塞进上下文。
+                if (AITranslator.isNoHistoryText(content)) {
+                    continue;
+                }
+
+                sb.append(mine ? "我：" : "对方：")
+                  .append(content)
+                  .append("\n");
+
+                added++;
+
+            } catch (Throwable one) {
+                // 单条消息解析失败直接跳过，不影响整个按钮。
+            }
+        }
+
+        if (added == 0) {
+            log("新版实时上下文: 找到列表但没有可用文字消息");
+            return null;
+        }
+
+        log("新版实时上下文读取成功: adapterItems="
+                + items.size()
+                + " textMessages="
+                + added);
+
+        return sb.toString();
+
+    } catch (Throwable t) {
+
+        log("新版实时上下文读取失败: "
+                + t.getClass().getSimpleName()
+                + ": "
+                + t.getMessage());
+
+        return null;
+    }
+}
     private static void applySelectedReply(Object msg) {
         if (msg == null) {
             resetSelectedReply();
@@ -1045,6 +1191,10 @@ new Thread(() -> {
                     @Override
                     protected void afterHookedMethod(MethodHookParam p) {
                         try {
+                        // 新版：保存当前聊天页面本身。
+// 后面点击“译”时直接从这个页面读取真实消息列表。
+currentChatDetailFragment = p.thisObject;
+
                             Object result = p.getResult();
                             if (!(result instanceof Integer)) return;
 
@@ -1722,7 +1872,42 @@ String quote = selectedReplyText;
             }
 
             String ttt = cleanText;
+// ===== 新版：括号问答直接使用 HelloTalk 当前真实消息列表 =====
+//
+// 只处理：
+// 1. 新版 HelloTalk
+// 2. 括号问答模式
+// 3. 没有显式选择回复对象
+//
+// 已经正常工作的：普通翻译 / 回复框翻译 / 旧版 HelloTalk
+// 都不会进入这里。
+if (pbm
+        && newReplyControllerDetected
+        && !hasSelectedReply) {
 
+    String liveContext = buildNewLiveChatContext(
+            AITranslator.getMaxChatMessagesForHook()
+    );
+
+    if (liveContext != null && !liveContext.trim().isEmpty()) {
+
+        ttt =
+                "【新版实时上下文优先规则】\n"
+                + "下面的 HelloTalk 实时对话由程序直接从当前聊天页面读取，"
+                + "真实性高于模块旧历史文件。"
+                + "如果旧历史与这里冲突，请忽略旧历史。"
+                + "纯数字聊天ID不是聊天内容，不得把聊天ID当成任何一方说过的话。\n\n"
+                + liveContext
+                + "\n【我的问题】\n"
+                + cleanText;
+
+        log("新版括号问答已使用实时聊天列表");
+
+    } else {
+
+        log("新版括号问答实时聊天列表读取失败，继续旧方式");
+    }
+}
             if (hasSelectedReply && quote != null && !quote.trim().isEmpty()) {
                 String orig = AITranslator.getForeignFuzzy(quote);
                 if (orig != null) quote = orig;

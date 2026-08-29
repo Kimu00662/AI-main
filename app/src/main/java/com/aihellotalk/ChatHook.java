@@ -391,16 +391,16 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
                     resetSelectedReply();
                 }
 
-                @Override
-                protected void afterHookedMethod(MethodHookParam p) {
-                    try {
-                        if (p.args != null && p.args.length > 0 && p.args[0] != null) {
-                            applySelectedReply(p.args[0]);
-                        }
-                    } catch (Throwable t) {
-                        log("ReplyMessageView.c0 hook error: " + t.getMessage());
-                    }
-                }
+@Override
+protected void afterHookedMethod(MethodHookParam p) {
+    try {
+        if (p.args != null && p.args.length > 0 && p.args[0] != null && !selectedReplyValid) {
+            applySelectedReply(p.args[0]);
+        }
+    } catch (Throwable t) {
+        log("ReplyMessageView.c0 hook error: " + t.getMessage());
+    }
+}
             });
             log("ReplyMessageView.c0 hook 注册成功");
         }

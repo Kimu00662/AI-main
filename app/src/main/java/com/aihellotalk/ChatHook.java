@@ -1017,10 +1017,7 @@ new Thread(() -> {
                 String eid = "0";
                 Object cidO = invokeQuiet(mGetChatId, msg);
                 if (cidO != null) eid = String.valueOf(cidO);
-                
-                if ("0".equals(eid) || "null".equals(eid) || eid.trim().isEmpty()) {
-                    return;
-                }
+                if ("0".equals(eid) || "null".equals(eid) || eid.trim().isEmpty()) return;
                 final String chatId = eid;
 
                 String sn = null;
@@ -1038,117 +1035,53 @@ new Thread(() -> {
                 String mt = (mto != null) ? String.valueOf(mto) : null;
 
                 if (text == null || text.isEmpty()) {
-                    if ("image".equals(mt) || "photo".equals(mt)) {
-                        text = "[对方发送了一张图片]";
-                    } else if ("voice".equals(mt) || "audio".equals(mt)) {
-                        text = "[对方发送了一条语音]";
-                    } else if ("video".equals(mt)) {
-                        text = "[对方发送了一段视频]";
-                    } else if ("emoji".equals(mt) || "sticker".equals(mt)) {
-                        text = "[对方发送了一个表情包]";
-                    } else {
-                        return;
-                    }
+                    if ("image".equals(mt) || "photo".equals(mt)) text = "[对方发送了一张图片]";
+                    else if ("voice".equals(mt) || "audio".equals(mt)) text = "[对方发送了一条语音]";
+                    else if ("video".equals(mt)) text = "[对方发送了一段视频]";
+                    else if ("emoji".equals(mt) || "sticker".equals(mt)) text = "[对方发送了一个表情包]";
+                    else return;
                 }
 
                 if (isMine && pendingSelectedForeign != null && pendingSelectedForeign.equals(text)) {
                     pendingSelectedForeign = null;
                     lastPickerResult = null;
-                    uiHandler.post(() -> {
-                        if (versionButton != null) versionButton.setVisibility(View.GONE);
-                    });
+                    uiHandler.post(() -> { if (versionButton != null) versionButton.setVisibility(View.GONE); });
                 }
 
                 Object mio = invokeQuiet(mGetMsgId, msg);
-                String mid = (mio != null) ? String.valueOf(mio) : null;
-                if (mid == null || mid.isEmpty()) mid = "n_" + text.hashCode();
+                String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
 
                 long st = System.currentTimeMillis();
                 Object sto = invokeQuiet(mGetSendTime, msg);
                 if (sto instanceof Long) st = (Long) sto;
 
-                String quotedText = null;
-                try {
-                    Object ri = invokeQuiet(mGetReplyInfo, msg);
-                    if (ri != null) {
-                        Object rIs = invokeQuiet(mIsSender, ri);
-                        boolean rIm = (rIs instanceof Boolean) && ((Boolean) rIs);
-
-                        Object rmt = invokeQuiet(mGetMsgType, ri);
-                        String rmtS = (rmt != null) ? String.valueOf(rmt) : null;
-
-                        if ("text".equals(rmtS) || "translate".equals(rmtS)) {
-                            String rq = extractMessageTextByType(ri, rmtS);
-                            if (rq != null && !rq.isEmpty()) {
-                                if (rIm) {
-                                    String mc = AITranslator.getChineseByForeign(rq);
-                                    if (mc == null) mc = AITranslator.getDraftFuzzy(rq);
-                                    quotedText = (mc != null) ? mc : rq;
-                                } else {
-                                    quotedText = rq;
-                                }
-                            }
-                        } else if (rmtS != null) {
-                            quotedText = "[" + rmtS + "]";
-                        }
-                    }
-                } catch (Exception ignored) {}
-
-                final boolean oneTime = isMine && text != null && AITranslator.consumeSuppressSent(text);
-
-                final boolean isPureSymbol = !AITranslator.hasAnyLetterOrDigit(text);
                 boolean isNew = recordedMsgIds.add(chatId + "_" + mid);
                 if (isNew && !shouldSkipHistory(text)) {
-                    final String fm = mid;
-                    final String ft = text;
-                    final String fq = quotedText;
-                    final long fst = st;
-                    final boolean fmn = isMine;
+                    final String fm = mid; final String ft = text; final long fst = st; final boolean fmn = isMine;
                     historyExecutor.execute(() -> {
-                        if (fmn) {
-                            AITranslator.appendHistory(chatId, fm, "assistant", ft, fst, fq, oneTime);
-                        } else {
-                            AITranslator.appendHistory(chatId, fm, "user", ft, fst, fq, false);
-                        }
+                        if (fmn) AITranslator.appendHistory(chatId, fm, "assistant", ft, fst, null, false);
+                        else AITranslator.appendHistory(chatId, fm, "user", ft, fst, null, false);
                     });
-                }
-
-                if (isPureSymbol && !isMine) {
-                    final String ft3 = text;
-                    final Object fb3 = bean;
-                    final String fc3 = chatId;
-                    new Thread(() -> {
-                        try {
-                            String display = AITranslator.analyzePureSymbol(ft3, fc3);
-                            if (display != null && !display.isEmpty() && !display.equals(ft3)) {
-                                try { setBeanField(fb3, display); } catch (Exception ignored) {}
-                            }
-                        } catch (Exception ignored) {}
-                    }).start();
-                    return;
                 }
 
                 if (text.startsWith("[")) return;
                 if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 if (isMine) {
+                    // 反向翻译：只查本地缓存，不调API
                     String d = AITranslator.getDraftFuzzy(text);
                     if (d == null) d = AITranslator.getChineseByForeign(text);
                     if (d != null && !d.isEmpty()) {
                         AITranslator.cacheResult(mid, text, d);
-                        final Object fbk = bean;
-                        final String ftk = text;
-                        new Thread(() -> {
+                        final Object fbk = bean; final String ftk = text;
+                        reverseTranslateExecutor.execute(() -> {
                             try { Thread.sleep(150); } catch (InterruptedException ignored) {}
                             try { setBeanField(fbk, ftk); } catch (Exception ignored) {}
-                        }).start();
+                        });
                         return;
                     }
-
-                    final String ft2 = text;
-                    final String fc2 = chatId;
-                    final String fm2 = mid;
-                    final Object fb2 = bean;
+                    // 缓存没有，启动反向翻译 API
+                    final String ft2 = text; final String fc2 = chatId; final String fm2 = mid; final Object fb2 = bean;
                     if (reverseTranslatedMsgIds.add(fm2)) {
                         reverseTranslateExecutor.execute(() -> {
                             try {
@@ -1170,94 +1103,28 @@ new Thread(() -> {
                     return;
                 }
 
+                // 对方消息：只查缓存，不调API（翻译由 hookTextViewRender 负责）
                 String[] cached = AITranslator.getCached(mid);
                 if (cached != null && cached[0] != null && cached[0].equals(text)) {
                     try {
                         setBeanField(bean, cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
                     } catch (Exception ignored) {}
-                    return;
                 }
-
-                if (!translating.add(mid)) return;
-
-                final String ft = text;
-                final String fm = mid;
-                final Object fb = bean;
-
-                new Thread(() -> {
-                    try {
-                        String t = null;
-                        try {
-                            t = AITranslator.toChinese(ft, chatId);
-                        } catch (Exception fe) {
-                            String m = fe.getMessage() == null ? "" : fe.getMessage();
-                            if (!m.contains("Key未配置") && !m.contains("未初始化")) {
-                                try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
-                                t = AITranslator.toChinese(ft, chatId);
-                            }
-                        }
-                        if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
-                            AITranslator.cacheResult(fm, ft, t);
-                            try {
-                                setBeanField(fb, t.replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
-                            } catch (Exception ignored) {}
-                        }
-                    } catch (Exception ignored) {
-                    } finally {
-                        translating.remove(fm);
-                    }
-                }).start();
 
             } catch (Throwable ignored) {}
         }
     };
 
-    // 旧版 5.7.0
     try {
         XposedHelpers.findAndHookMethod(hm, "getMessageContent", Class.class, boolean.class, recvHook);
     } catch (Throwable t) {
         log("hookRecv old fail: " + t.getMessage());
     }
 
-    // 新版 6.4.0
     try {
         XposedHelpers.findAndHookMethod(hm, "B", Class.class, recvHook);
     } catch (Throwable t) {
         log("hookRecv new B fail: " + t.getMessage());
-    }
-
-    // 新版兜底：hook 文本渲染器 Lzk4.i (bindData)，直接改 reportText 字段
-    try {
-        Class<?> textDelegate = cl.loadClass("zk4");
-        XposedBridge.hookAllMethods(textDelegate, "i", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam p) {
-                try {
-                    if (p.args == null || p.args.length < 2) return;
-                    if (!"com.hellotalk.lib.im.entity.HTIMMessage".equals(p.args[0].getClass().getName())) return;
-                    Object msg = p.args[0];
-                    Object bean = p.args[1];
-                    if (bean == null) return;
-                    log("zk4.i FIRED!");
-                    ensureMsgMethods(msg);
-                    Object iso = invokeQuiet(mIsSender, msg);
-                    boolean isMine = (iso instanceof Boolean) && ((Boolean) iso);
-                    if (isMine) return;
-                    // 先读缓存，有就直接改 reportText
-                    String text = (String) invokeQuiet(ensureBeanGetText(bean), bean);
-                    if (text == null || text.isEmpty()) return;
-                    Object mio = invokeQuiet(mGetMsgId, msg);
-                    String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
-                    String[] cached = AITranslator.getCached(mid);
-                    if (cached != null && cached[0] != null && cached[0].equals(text)) {
-                        setBeanField(bean, cached[1].replaceAll("[\\s🌐🔄]+$", "") + " 🔄");
-                    }
-                } catch (Throwable ignored) {}
-            }
-        });
-        log("zk4.i hook 注册成功");
-    } catch (Throwable t) {
-        log("zk4.i hook 失败: " + t.getMessage());
     }
 }
 

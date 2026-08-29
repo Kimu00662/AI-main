@@ -1624,7 +1624,7 @@ private static void setBeanField(Object bean, String text) {
         });
     }
 
-    private static String determineSmartTargetLang(String nat, int nl, String cid) {
+    private static String determineSmartTargetLang(String nat, int nl, String cid) { log("SmartTargetLang: nat=" + nat + " nl=" + nl + " cid=" + cid);
         String n = nat == null ? "" : nat.toLowerCase();
         if (!n.isEmpty()) {
             String ml = mapNationalityToLang(n);

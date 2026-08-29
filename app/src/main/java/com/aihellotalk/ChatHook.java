@@ -695,17 +695,18 @@ private static void hookTextViewRender(ClassLoader cl) {
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
                 if (AITranslator.containsJapanese(s)) return;
 
-                // 缓存命中直接替换
-                String d = AITranslator.getChineseByForeign(s);
-                if (d != null && !d.equals(s)) {
-                    param.args[0] = d + " 🔄";
-                    return;
-                }
-                d = AITranslator.getDraftFuzzy(s);
-                if (d != null && !d.equals(s)) {
-                    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
-                    return;
-                }
+                // 自己发的消息（草稿缓存）：只加 🌐，不替换原文
+String d = AITranslator.getDraftFuzzy(s);
+if (d != null && !d.equals(s)) {
+    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
+    return;
+}
+// 对方消息（翻译缓存）：替换为中文 + 🔄
+d = AITranslator.getChineseByForeign(s);
+if (d != null && !d.equals(s)) {
+    param.args[0] = d + " 🔄";
+    return;
+}
 
                 // 缓存没命中，丢后台翻译
                 final String ft = s;

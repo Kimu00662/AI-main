@@ -1234,7 +1234,7 @@ new Thread(() -> {
             protected void beforeHookedMethod(MethodHookParam p) {
                 try {
                     if (p.args == null || p.args.length < 2) return;
-                    if (!(p.args[0] instanceof com.hellotalk.lib.im.entity.HTIMMessage)) return;
+                    if (!"com.hellotalk.lib.im.entity.HTIMMessage".equals(p.args[0].getClass().getName())) return;
                     Object msg = p.args[0];
                     Object bean = p.args[1];
                     if (bean == null) return;
@@ -1279,6 +1279,16 @@ private static void setBeanField(Object bean, String text) {
         f.set(bean, text);
     } catch (Throwable t3) {}
 }
+
+    private static void hookBtnOld(ClassLoader cl) throws Exception {
+        Class<?> bc = XposedHelpers.findClass("com.hellotalk.chat.ui.ChatInputBoxView", cl);
+        XposedBridge.hookAllConstructors(bc, new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                ((View) p.thisObject).postDelayed(() -> tryAddBtn((View) p.thisObject), 2000);
+            }
+        });
+    }
 
     private static void hookBtnNew(ClassLoader cl) throws Exception {
         Class<?> oc = XposedHelpers.findClass(

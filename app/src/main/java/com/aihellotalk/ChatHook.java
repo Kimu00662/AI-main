@@ -695,14 +695,14 @@ private static void hookTextViewRender(ClassLoader cl) {
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
                 if (AITranslator.containsJapanese(s)) return;
 
-                // 自己发的消息：草稿缓存命中 → 只加 🌐，不替换原文
-String d = AITranslator.getDraftFuzzy(s);
+                // 自己发的：只查 mySentDrafts，命中只加 🌐
+String d = AITranslator.mySentDrafts.get(s);
 if (d != null && !d.equals(s)) {
     param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
     return;
 }
-// 对方消息：翻译缓存命中 → 替换为中文 + 🔄
-d = AITranslator.getChineseByForeign(s);
+// 对方发的：查 foreignToChinese，命中替换为中文 + 🔄
+d = AITranslator.foreignToChinese.get(s);
 if (d != null && !d.equals(s)) {
     param.args[0] = d + " 🔄";
     return;

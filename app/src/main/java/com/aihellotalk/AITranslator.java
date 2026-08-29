@@ -41,7 +41,21 @@ import okhttp3.Response;
 
 public class AITranslator {
 
+   
     private static final String TAG = "HT_AI";
+
+// ===== 临时 LSPosed 诊断日志 =====
+private static void qHistLog(String text) {
+    try {
+        de.robv.android.xposed.XposedBridge.log("HT_AI " + text);
+    } catch (Throwable e) {
+        try {
+            android.util.Log.i(TAG, text);
+        } catch (Throwable ignored) {}
+    }
+}
+
+
     private static final MediaType JSON_TYPE = MediaType.get("application/json; charset=utf-8");
 
     private static String apiKey;
@@ -1160,15 +1174,14 @@ try {
         }
     }
 
-    android.util.Log.i(
-            TAG,
-            "HT_AI_QHIST_SUMMARY chatId=" + chatId
-                    + " total=" + totalCount
-                    + " 对方(user)=" + userCount
-                    + " 我(assistant)=" + assistantCount
-                    + " other=" + otherCount
-                    + " maxChat=" + getMaxChatMessages()
-    );
+qHistLog(
+        "HT_AI_QHIST_SUMMARY chatId=" + chatId
+                + " total=" + totalCount
+                + " 对方(user)=" + userCount
+                + " 我(assistant)=" + assistantCount
+                + " other=" + otherCount
+                + " maxChat=" + getMaxChatMessages()
+);
 
     // 最近最多 15 条，重点看 content 有没有被错误写成 chatId
     int debugStart = Math.max(0, fullHistory.length() - 15);
@@ -1201,15 +1214,15 @@ try {
             debugContent = debugContent.substring(0, 250) + "...";
         }
 
-        android.util.Log.i(
-                TAG,
-                "HT_AI_QHIST_ITEM index=" + i
-                        + " who=" + who
-                        + " role=" + role
-                        + " msgId=" + msgId
-                        + " ts=" + ts
-                        + " content=[" + debugContent + "]"
-        );
+qHistLog(
+        "HT_AI_QHIST_ITEM index=" + i
+                + " who=" + who
+                + " role=" + role
+                + " msgId=" + msgId
+                + " ts=" + ts
+                + " content=[" + debugContent + "]"
+);
+
     }
 
     // 专门检查当前 chatId 有没有被错误当成聊天文本保存
@@ -1224,30 +1237,28 @@ try {
         if (chatId != null && chatId.equals(content != null ? content.trim() : "")) {
             chatIdAsContentCount++;
 
-            android.util.Log.w(
-                    TAG,
-                    "HT_AI_QHIST_BAD_CHATID_CONTENT index=" + i
-                            + " role=" + h.optString("role", "")
-                            + " msgId=" + h.optString("msgId", "")
-                            + " content=[" + content + "]"
-            );
+qHistLog(
+        "HT_AI_QHIST_BAD_CHATID_CONTENT index=" + i
+                + " role=" + h.optString("role", "")
+                + " msgId=" + h.optString("msgId", "")
+                + " content=[" + content + "]"
+);
         }
     }
 
-    android.util.Log.i(
-            TAG,
-            "HT_AI_QHIST_CHATID_AS_CONTENT_COUNT="
-                    + chatIdAsContentCount
-    );
+qHistLog(
+        "HT_AI_QHIST_CHATID_AS_CONTENT_COUNT="
+                + chatIdAsContentCount
+);
 
 } catch (Throwable debugError) {
-    android.util.Log.w(
-            TAG,
-            "HT_AI_QHIST_ERROR "
-                    + debugError.getClass().getName()
-                    + ": "
-                    + debugError.getMessage()
-    );
+qHistLog(
+        "HT_AI_QHIST_ERROR "
+                + debugError.getClass().getName()
+                + ": "
+                + debugError.getMessage()
+);
+
 }
 
             StringBuilder imgMemories = new StringBuilder();

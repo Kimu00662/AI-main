@@ -675,73 +675,62 @@ private static boolean readStealthConfig(String key, boolean def) {
 }
 
     private static void hookTextViewRender(ClassLoader cl) {
-        if (htTextViewClass == null) return;
+    if (htTextViewClass == null) return;
 
-        XC_MethodHook renderLogic = new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                try {
-                    if (param.thisObject instanceof EditText) return;
-                    if (!htTextViewClass.isInstance(param.thisObject)) return;
+    XC_MethodHook renderLogic = new XC_MethodHook() {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam param) {
+            try {
+                if (param.thisObject instanceof EditText) return;
+                if (!htTextViewClass.isInstance(param.thisObject)) return;
 
-                    CharSequence cs = (CharSequence) param.args[0];
-                    if (cs == null) return;
+                CharSequence cs = (CharSequence) param.args[0];
+                if (cs == null) return;
 
-                    String s = cs.toString();
-                    if (s.isEmpty() || s.length() > 5000) return;
-                    if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
+                String s = cs.toString();
+                if (s.isEmpty() || s.length() > 5000) return;
+                if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
-                    String d = AITranslator.getDraftFuzzy(s);
-                    if (d == null) d = AITranslator.getChineseByForeign(s);
-                    if (d != null && !d.equals(s)) {
-                        SpannableStringBuilder ssb = new SpannableStringBuilder(cs);
-                        ssb.append(" 🌐");
-                        param.args[0] = ssb;
-                    }
-                } catch (Throwable ignored) {}
-            }
-        };
+                // 先查缓存
+                String d = AITranslator.getDraftFuzzy(s);
+                if (d == null) d = AITranslator.getChineseByForeign(s);
+                if (d != null && !d.equals(s)) {
+                    param.args[0] = d + " 🔄";
+                    return;
+                }
 
-        try {
-            XposedHelpers.findAndHookMethod("android.widget.TextView", null, "setText",
-                    CharSequence.class, TextView.BufferType.class, renderLogic);
-        } catch (Throwable t) {}
+                // 缓存没有，启动翻译，下次显示时就能命中
+                if (AITranslator.hasAnyLetterOrDigit(s) && !AITranslator.isChineseOnly(s) && !AITranslator.containsJapanese(s)) {
+                    final String ft = s;
+                    final TextView tv = (TextView) param.thisObject;
+                    new Thread(() -> {
+                        try {
+                            String t = AITranslator.toChinese(ft, currentChatId);
+                            if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
+                                AITranslator.cacheResult("tv_" + ft.hashCode(), ft, t);
+                                tv.post(() -> {
+                                    try {
+                                        tv.setText(t + " 🔄");
+                                    } catch (Throwable ignored) {}
+                                });
+                            }
+                        } catch (Throwable ignored) {}
+                    }).start();
+                }
+            } catch (Throwable ignored) {}
+        }
+    };
 
-        try {
-            XposedHelpers.findAndHookMethod("android.widget.TextView", null, "setText",
-                    CharSequence.class, renderLogic);
-        } catch (Throwable t) {}
+    try {
+        XposedHelpers.findAndHookMethod("android.widget.TextView", null, "setText",
+                CharSequence.class, TextView.BufferType.class, renderLogic);
+    } catch (Throwable t) {}
 
-        try {
-            XposedHelpers.findAndHookMethod("android.widget.TextView", null, "setText",
-                    char[].class, int.class, int.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            try {
-                                if (param.thisObject instanceof EditText) return;
-                                if (!htTextViewClass.isInstance(param.thisObject)) return;
-
-                                char[] chars = (char[]) param.args[0];
-                                int start = (int) param.args[1];
-                                int len = (int) param.args[2];
-                                if (chars == null || len <= 0 || len > 5000) return;
-
-                                String s = new String(chars, start, len);
-                                if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
-
-                                String d = AITranslator.getDraftFuzzy(s);
-                                if (d == null) d = AITranslator.getChineseByForeign(s);
-                                if (d != null && !d.equals(s)) {
-                                    String ns = s + " 🌐";
-                                    param.args[0] = ns.toCharArray();
-                                    param.args[1] = 0;
-                                    param.args[2] = ns.length();
-                                }
-                            } catch (Throwable ignored) {}
-                        }
-                    });
-        } catch (Throwable t) {}
-    }
+    try {
+        XposedHelpers.findAndHookMethod("android.widget.TextView", null, "setText",
+                CharSequence.class, renderLogic);
+    } catch (Throwable t) {}
+}
 
     private static void hookClipboard(ClassLoader cl) {
         XC_MethodHook h = new XC_MethodHook() {

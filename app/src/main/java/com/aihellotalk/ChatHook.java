@@ -897,6 +897,19 @@ new Thread(() -> {
                                 resetSelectedReply();
 
                                 log("新版 ChatDetailFragment.H3() 获取 chatId = " + newChatId);
+                                // 获取对方国籍/母语/昵称
+final Object fragment = p.thisObject;
+new Thread(() -> {
+    try {
+        Object vm = XposedHelpers.callMethod(fragment, "Q3");
+        if (vm != null) {
+            Object cu = XposedHelpers.callMethod(vm, "getChatUser");
+            if (cu != null) {
+                updateFromChatUser(cu);
+            }
+        }
+    } catch (Exception ignored) {}
+}).start();
                             } else {
                                 currentChatId = newChatId;
                             }

@@ -1004,7 +1004,6 @@ new Thread(() -> {
         protected void afterHookedMethod(MethodHookParam p) {
             try {
                 Object msg = p.thisObject;
-                log("hookRecv FIRED!");
                 ensureMsgMethods(msg);
 
                 Object iso = invokeQuiet(mIsSender, msg);
@@ -1263,21 +1262,19 @@ new Thread(() -> {
 
 // 直接反射写字段，绕过所有方法名混淆
 private static void setBeanField(Object bean, String text) {
-    try {
-        XposedHelpers.callMethod(bean, "setText", text);
-        return;
-    } catch (Throwable t1) {}
+    try { XposedHelpers.callMethod(bean, "setText", text); return; } catch (Throwable t1) {}
+    try { XposedHelpers.callMethod(bean, "C", text); } catch (Throwable t2) {}
+    try { XposedHelpers.callMethod(bean, "J", text); } catch (Throwable t3) {}
     try {
         Field f = bean.getClass().getDeclaredField("reportText");
         f.setAccessible(true);
         f.set(bean, text);
-        return;
-    } catch (Throwable t2) {}
+    } catch (Throwable t4) {}
     try {
         Field f = bean.getClass().getDeclaredField("text");
         f.setAccessible(true);
         f.set(bean, text);
-    } catch (Throwable t3) {}
+    } catch (Throwable t5) {}
 }
 
     private static void hookBtnOld(ClassLoader cl) throws Exception {

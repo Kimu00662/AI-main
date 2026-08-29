@@ -77,12 +77,17 @@ public class ChatHook {
     private static volatile boolean selectedReplyValid = false;
     private static volatile String selectedReplyMsgId = null;
     private static volatile long selectedReplySendTime = 0;
-    private static volatile String selectedReplySenderName = null;
-    private static volatile String selectedReplyChatId = null;
-    private static volatile ClassLoader hostClassLoader = null;
+private static volatile String selectedReplySenderName = null;
+private static volatile String selectedReplyChatId = null;
+private static volatile ClassLoader hostClassLoader = null;
+
+// ===== 新版 HelloTalk：真正的回复控制器 =====
+// m4t = com.hellotalk.talk.detail.controller.TalkDetailReplyController
+private static volatile Object newReplyController = null;
+private static volatile boolean newReplyControllerDetected = false;
     
-    // ===== v5.13 回复引用中转变量 =====
-    private static volatile String pendingSendQuote = null;
+// ===== v5.13 回复引用中转变量 =====
+private static volatile String pendingSendQuote = null;
     private static volatile String pendingSendChatId = null;
     private static final long SELECTED_REPLY_FALLBACK_WINDOW_MS = 120000L;
 
@@ -231,12 +236,19 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         try { hookUltimateStealth(cl); } catch (Throwable ignored) {}
         try { hookImageRenderLayer(cl); } catch (Throwable ignored) {}
 
-        // 关键：hook HelloTalk 输入框上方的“回复条”
-        try { hookInputReplyBar(cl); } catch (Throwable ignored) {}
-        
-        // ===== v5.13 新增：hook 拦截发送动作 =====
-        try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
-        try { hookSendMessage(cl); } catch (Throwable ignored) {}
+// ===== 新版 HelloTalk：真正的回复控制器 =====
+// 旧版没有 m4t，所以不会影响旧版
+try {
+    hookNewReplyController(cl);
+} catch (Throwable t) {
+    log("新版回复控制器 hook fail: " + t.getMessage());
+}
+
+// 回复条
+try { hookInputReplyBar(cl); } catch (Throwable ignored) {}
+
+// ===== v5.13 新增：hook 拦截发送动作 =====
+try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
     }
 
     private static void log(String msg) {
@@ -379,34 +391,132 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         return null;
     }
 
-    private static void hookInputReplyBar(ClassLoader cl) {
-    // 新版 6.4.0：ReplyMessageView.c0(HTIMMessage) 是回复条绑定数据的方法
+// ===== 新版 HelloTalk 精准回复状态 =====
+//
+// 逆向确认：
+// m4t = com.hellotalk.talk.detail.controller.TalkDetailReplyController
+// g(HTIMMessage) = updateReplyMode
+// f() = obtainReplyMsg
+//
+// 用户真正点“回复某条消息”时才会进入 g()。
+// 点击翻译按钮时再调用 f()，得到输入框当前真正引用的消息。
+private static void hookNewReplyController(ClassLoader cl) {
     try {
-        Class<?> replyView = XposedHelpers.findClassIfExists(
-                "com.hellotalk.talk.detail.widget.ReplyMessageView", cl);
-        if (replyView != null) {
-            XposedBridge.hookAllMethods(replyView, "c0", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam p) {
-                    resetSelectedReply();
-                }
+        Class<?> controller = XposedHelpers.findClassIfExists("m4t", cl);
 
-@Override
-protected void afterHookedMethod(MethodHookParam p) {
-    try {
-        if (p.args != null && p.args.length > 0 && p.args[0] != null && !selectedReplyValid) {
-            applySelectedReply(p.args[0]);
+        if (controller == null) {
+            log("新版 TalkDetailReplyController(m4t) 不存在，继续使用旧版回复逻辑");
+            return;
         }
+
+        newReplyControllerDetected = true;
+
+        XposedBridge.hookAllMethods(controller, "g", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                try {
+                    // 保存当前真正工作的回复控制器实例
+                    newReplyController = p.thisObject;
+
+                    Object msg =
+                            (p.args != null && p.args.length > 0)
+                                    ? p.args[0]
+                                    : null;
+
+                    if (msg != null) {
+                        applySelectedReply(msg);
+
+                        log("新版真实回复目标捕获: mine="
+                                + selectedReplyIsMine
+                                + " text="
+                                + selectedReplyText);
+                    } else {
+                        resetSelectedReply();
+                        log("新版真实回复目标清空");
+                    }
+
+                } catch (Throwable t) {
+                    log("新版 updateReplyMode 捕获失败: " + t.getMessage());
+                }
+            }
+        });
+
+        log("新版 TalkDetailReplyController(m4t) Hook 注册成功");
+
     } catch (Throwable t) {
-        log("ReplyMessageView.c0 hook error: " + t.getMessage());
+        log("hookNewReplyController fail: " + t.getMessage());
     }
 }
-            });
-            log("ReplyMessageView.c0 hook 注册成功");
-        }
-    } catch (Throwable t) {
-        log("ReplyMessageView hook fail: " + t.getMessage());
+
+
+// 点击“译”时，不相信 UI 曾经保存的 selectedReply，
+// 而是直接问新版 TalkDetailReplyController：
+// “输入框现在到底回复的是哪条消息？”
+private static boolean refreshSelectedReplyFromNewController() {
+
+    // 没检测到 m4t = 旧版 HelloTalk
+    // 什么也不做，原来的旧版逻辑继续运行
+    if (!newReplyControllerDetected) {
+        return false;
     }
+
+    Object controller = newReplyController;
+
+    // 新版存在，但用户还没有执行过“回复”
+    if (controller == null) {
+        resetSelectedReply();
+        return true;
+    }
+
+    try {
+        // f() = obtainReplyMsg
+        Object msg = XposedHelpers.callMethod(controller, "f");
+
+        // 当前已经取消回复 / 根本没有回复对象
+        if (msg == null) {
+            resetSelectedReply();
+            log("新版 obtainReplyMsg: 当前没有回复对象");
+            return true;
+        }
+
+        // 这是输入框当前真正引用的 HTIMMessage
+        applySelectedReply(msg);
+
+        // 防止极端情况下切换聊天后拿到了旧聊天页控制器
+        if (selectedReplyChatId != null
+                && currentChatId != null
+                && !"0".equals(currentChatId)
+                && !selectedReplyChatId.equals(currentChatId)) {
+
+            log("新版回复对象 chatId 不一致，丢弃: reply="
+                    + selectedReplyChatId
+                    + " current="
+                    + currentChatId);
+
+            resetSelectedReply();
+
+        } else {
+
+            log("新版 obtainReplyMsg 精准读取: mine="
+                    + selectedReplyIsMine
+                    + " text="
+                    + selectedReplyText);
+        }
+
+        return true;
+
+    } catch (Throwable t) {
+
+        log("新版 obtainReplyMsg 读取失败: " + t.getMessage());
+
+        // 新版路径读取失败时宁可认为没有回复，
+        // 也绝不能继续使用被 UI 列表污染的旧 selectedReply
+        resetSelectedReply();
+
+        return true;
+    }
+}
+    private static void hookInputReplyBar(ClassLoader cl) {
 
     // 旧版 5.7.0 兜底：kr0.d
     try {
@@ -1552,9 +1662,15 @@ private static void setBeanField(Object bean, String text) {
             final String nats = latestNationality;
             final int nls = latestNativeLang;
 
-            boolean hasSelectedReply = selectedReplyValid;
-            boolean selectedReplyMine = selectedReplyIsMine;
-            String quote = selectedReplyText;
+            
+           
+            // 新版 HelloTalk：在点击“译”的这一刻重新读取真正的回复对象。
+// 旧版没有 m4t，所以旧版什么都不会改变。
+refreshSelectedReplyFromNewController();
+
+boolean hasSelectedReply = selectedReplyValid;
+boolean selectedReplyMine = selectedReplyIsMine;
+String quote = selectedReplyText;
             final String qis = currentQuotedImagePath;
             final boolean qms = currentQuotedImageMissing;
 

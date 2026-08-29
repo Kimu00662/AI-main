@@ -1036,77 +1036,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
 
             JSONArray fullHistory = loadHistory(chatId);
             StringBuilder scriptBuilder = new StringBuilder();
-            // ===== 括号问答历史诊断 =====
-// 只打印日志，不修改历史、不改变发送给 AI 的内容。
-try {
-    int totalCount = fullHistory.length();
-    int userCount = 0;       // 对方
-    int assistantCount = 0;  // 我
-    int otherCount = 0;
 
-    for (int i = 0; i < fullHistory.length(); i++) {
-        JSONObject h = fullHistory.optJSONObject(i);
-        if (h == null) continue;
-
-        String role = h.optString("role", "");
-
-        if ("user".equals(role)) {
-            userCount++;
-        } else if ("assistant".equals(role)) {
-            assistantCount++;
-        } else {
-            otherCount++;
-        }
-    }
-
-    Log.i(TAG,
-            "HT_AI 问答历史诊断: chatId=" + chatId
-                    + " 总数=" + totalCount
-                    + " 对方(user)=" + userCount
-                    + " 我(assistant)=" + assistantCount
-                    + " 其他=" + otherCount
-                    + " maxChat=" + getMaxChatMessages());
-
-    // 打印最近最多 10 条历史，方便判断“我”的消息到底有没有进去
-    int debugStart = Math.max(0, fullHistory.length() - 10);
-
-    for (int i = debugStart; i < fullHistory.length(); i++) {
-        JSONObject h = fullHistory.optJSONObject(i);
-        if (h == null) continue;
-
-        String role = h.optString("role", "");
-        String content = h.optString("content", "");
-        long ts = h.optLong("timestamp", 0);
-
-        String who;
-        if ("user".equals(role)) {
-            who = "对方";
-        } else if ("assistant".equals(role)) {
-            who = "我";
-        } else {
-            who = "其他(" + role + ")";
-        }
-
-        // 防止日志被超长消息刷爆
-        String debugContent = content;
-        if (debugContent == null) debugContent = "";
-        debugContent = debugContent.replace("\n", " | ");
-
-        if (debugContent.length() > 180) {
-            debugContent = debugContent.substring(0, 180) + "...";
-        }
-
-        Log.i(TAG,
-                "HT_AI 问答历史最近[" + i + "] "
-                        + who
-                        + " ts=" + ts
-                        + " : "
-                        + debugContent);
-    }
-
-} catch (Throwable debugError) {
-    Log.w(TAG, "HT_AI 问答历史诊断失败: " + debugError.getMessage());
-}
             scriptBuilder.append("\u3010\u6700\u8fd1\u5bf9\u8bdd\u4e0a\u4e0b\u6587\u3011\n");
             int maxChatMessages = getMaxChatMessages();
             int startIdx = Math.max(0, fullHistory.length() - maxChatMessages);
@@ -1206,7 +1136,119 @@ private static OkHttpClient getReceiveClient() {
             messages.put(createMessageObj("system", sysPrompt));
 
             JSONArray fullHistory = loadHistory(chatId);
-            StringBuilder scriptBuilder = new StringBuilder();
+            StringBuilder scriptBuilder = new StringBuilder(); // ===== 真正的括号问答历史诊断 =====
+// 这里位于 askAiQuestion()，所以输入（问题）时一定会运行。
+// 只打印日志，不修改历史内容，也不改变 AI 请求。
+try {
+    int totalCount = fullHistory.length();
+    int userCount = 0;       // 对方
+    int assistantCount = 0;  // 我
+    int otherCount = 0;
+
+    for (int i = 0; i < fullHistory.length(); i++) {
+        JSONObject h = fullHistory.optJSONObject(i);
+        if (h == null) continue;
+
+        String role = h.optString("role", "");
+
+        if ("user".equals(role)) {
+            userCount++;
+        } else if ("assistant".equals(role)) {
+            assistantCount++;
+        } else {
+            otherCount++;
+        }
+    }
+
+    android.util.Log.i(
+            TAG,
+            "HT_AI_QHIST_SUMMARY chatId=" + chatId
+                    + " total=" + totalCount
+                    + " 对方(user)=" + userCount
+                    + " 我(assistant)=" + assistantCount
+                    + " other=" + otherCount
+                    + " maxChat=" + getMaxChatMessages()
+    );
+
+    // 最近最多 15 条，重点看 content 有没有被错误写成 chatId
+    int debugStart = Math.max(0, fullHistory.length() - 15);
+
+    for (int i = debugStart; i < fullHistory.length(); i++) {
+        JSONObject h = fullHistory.optJSONObject(i);
+        if (h == null) continue;
+
+        String role = h.optString("role", "");
+        String content = h.optString("content", "");
+        String msgId = h.optString("msgId", "");
+        long ts = h.optLong("timestamp", 0);
+
+        String who;
+        if ("user".equals(role)) {
+            who = "对方";
+        } else if ("assistant".equals(role)) {
+            who = "我";
+        } else {
+            who = "其他(" + role + ")";
+        }
+
+        if (content == null) content = "";
+
+        String debugContent = content
+                .replace("\n", " | ")
+                .replace("\r", " ");
+
+        if (debugContent.length() > 250) {
+            debugContent = debugContent.substring(0, 250) + "...";
+        }
+
+        android.util.Log.i(
+                TAG,
+                "HT_AI_QHIST_ITEM index=" + i
+                        + " who=" + who
+                        + " role=" + role
+                        + " msgId=" + msgId
+                        + " ts=" + ts
+                        + " content=[" + debugContent + "]"
+        );
+    }
+
+    // 专门检查当前 chatId 有没有被错误当成聊天文本保存
+    int chatIdAsContentCount = 0;
+
+    for (int i = 0; i < fullHistory.length(); i++) {
+        JSONObject h = fullHistory.optJSONObject(i);
+        if (h == null) continue;
+
+        String content = h.optString("content", "");
+
+        if (chatId != null && chatId.equals(content != null ? content.trim() : "")) {
+            chatIdAsContentCount++;
+
+            android.util.Log.w(
+                    TAG,
+                    "HT_AI_QHIST_BAD_CHATID_CONTENT index=" + i
+                            + " role=" + h.optString("role", "")
+                            + " msgId=" + h.optString("msgId", "")
+                            + " content=[" + content + "]"
+            );
+        }
+    }
+
+    android.util.Log.i(
+            TAG,
+            "HT_AI_QHIST_CHATID_AS_CONTENT_COUNT="
+                    + chatIdAsContentCount
+    );
+
+} catch (Throwable debugError) {
+    android.util.Log.w(
+            TAG,
+            "HT_AI_QHIST_ERROR "
+                    + debugError.getClass().getName()
+                    + ": "
+                    + debugError.getMessage()
+    );
+}
 
             StringBuilder imgMemories = new StringBuilder();
             int imgCount = 1;

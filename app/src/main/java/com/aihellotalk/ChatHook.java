@@ -164,10 +164,9 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     }
 }
 
-    private static Method ensureBeanGetText(Object bean) {
+        private static Method ensureBeanGetText(Object bean) {
     if (bean == null) return null;
     try {
-        // 先尝试直接获取
         Method m = bean.getClass().getMethod("getText");
         m.setAccessible(true);
         return m;
@@ -178,7 +177,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         return m;
     } catch (Throwable t2) {}
     try {
-        Method m = bean.getClass().getMethod("u");
+        Method m = bean.getClass().getMethod("r");
         m.setAccessible(true);
         return m;
     } catch (Throwable t3) {}

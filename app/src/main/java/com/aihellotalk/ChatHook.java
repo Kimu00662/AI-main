@@ -901,12 +901,16 @@ new Thread(() -> {
 final Object fragment = p.thisObject;
 new Thread(() -> {
     try {
-        Object vm = XposedHelpers.callMethod(fragment, "Q3");
-        if (vm != null) {
-            Object cu = XposedHelpers.callMethod(vm, "getChatUser");
-            if (cu != null) {
-                updateFromChatUser(cu);
+        for (int i = 0; i < 8; i++) {
+            Object vm = XposedHelpers.callMethod(fragment, "Q3");
+            if (vm != null) {
+                Object cu = XposedHelpers.callMethod(vm, "getChatUser");
+                if (cu != null) {
+                    updateFromChatUser(cu);
+                    return;
+                }
             }
+            Thread.sleep(400);
         }
     } catch (Exception ignored) {}
 }).start();

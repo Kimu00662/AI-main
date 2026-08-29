@@ -221,7 +221,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
             langCodeMethod = avClass.getMethod("a", int.class);
         } catch (Throwable ignored) {}
 
-        // try { hookTextViewRender(cl); } catch (Throwable t) { log("render hook fail"); }
+        try { hookTextViewRender(cl); } catch (Throwable t) { log("render hook fail"); }
         try { hookClipboard(cl); } catch (Throwable ignored) {}
         try { hookBubbleFlip(cl); } catch (Throwable ignored) {}
         try { hookStartChat(cl); } catch (Throwable ignored) {}
@@ -681,8 +681,6 @@ private static void hookTextViewRender(ClassLoader cl) {
         @Override
         protected void beforeHookedMethod(MethodHookParam param) {
             try {
-                long _t0 = System.currentTimeMillis();
-
                 if (param.thisObject instanceof EditText) return;
                 if (!htTextViewClass.isInstance(param.thisObject)) return;
 
@@ -693,25 +691,23 @@ private static void hookTextViewRender(ClassLoader cl) {
                 if (s.isEmpty() || s.length() > 5000) return;
                 if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
-                // 先查缓存
-                // 对方消息：查翻译缓存，有就替换
-String d = AITranslator.getChineseByForeign(s);
-if (d != null && !d.equals(s)) {
-    param.args[0] = d + " 🔄";
-    return;
-}
-// 自己发的消息：只加 🌐，不替换
-d = AITranslator.getDraftFuzzy(s);
-if (d != null && !d.equals(s)) {
-    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
-    return;
-}
-                // 快速跳过中文、纯数字、短文本
-                if (s.length() < 3) return;
-                if (AITranslator.containsJapanese(s)) return;
+                // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
+                if (AITranslator.containsJapanese(s)) return;
 
-                // 启动翻译（去重 + 线程池）
+                // 缓存命中直接替换
+                String d = AITranslator.getChineseByForeign(s);
+                if (d != null && !d.equals(s)) {
+                    param.args[0] = d + " 🔄";
+                    return;
+                }
+                d = AITranslator.getDraftFuzzy(s);
+                if (d != null && !d.equals(s)) {
+                    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
+                    return;
+                }
+
+                // 缓存没命中，丢后台翻译
                 final String ft = s;
                 final String key = "tv_" + ft;
                 final TextView tv = (TextView) param.thisObject;
@@ -730,9 +726,6 @@ if (d != null && !d.equals(s)) {
                         translating.remove(key);
                     }
                 });
-
-                long _dt = System.currentTimeMillis() - _t0;
-                if (_dt > 50) log("renderHook SLOW: " + _dt + "ms");
             } catch (Throwable ignored) {}
         }
     };

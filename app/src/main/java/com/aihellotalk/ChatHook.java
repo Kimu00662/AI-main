@@ -956,6 +956,27 @@ private static Object callObjMethod(Object obj, String oldName, String newName) 
     catch (Throwable t) { return XposedHelpers.callMethod(obj, newName); }
 }
 
+    private static void hookLang(ClassLoader cl) throws Exception {
+        Class<?> vm = XposedHelpers.findClass("com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl);
+        Field uf = vm.getDeclaredField("chatUser");
+        uf.setAccessible(true);
+
+        Class<?> hm = cl.loadClass("com.hellotalk.lib.im.entity.HTIMMessage");
+
+        XposedHelpers.findAndHookMethod(vm, "generateChatMessage", hm, boolean.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) {
+                        try {
+                            Object u = uf.get(p.thisObject);
+                            if (u != null) {
+                                partnerLang = (Integer) XposedHelpers.callMethod(u, "getNativeLang");
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+                });
+    }
+
     private static void hookImageRenderLayer(ClassLoader cl) {
         try {
             Class<?> imc = XposedHelpers.findClassIfExists(

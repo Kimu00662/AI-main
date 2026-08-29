@@ -554,8 +554,8 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
                         hostClassLoader);
                 if (textBean == null) return null;
 
-                Object bean = invokeQuiet(mGetMsgContentTyped, msg, textBean, false);
-if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, textBean);
+                Object bean = invokeQuiet(mGetMsgContentTyped, msg, textBean, false); log("extractText bean=" + bean);
+if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, textBean); log("extractText bean2=" + bean);
                 if (bean == null) return null;
 
                 Object t = invokeQuiet(ensureBeanGetText(bean), bean);

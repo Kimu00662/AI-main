@@ -1205,10 +1205,34 @@ private static Object callObjMethod(Object obj, String oldName, String newName) 
                 if (bean == null) return;
 
                 String eid = "0";
-                Object cidO = invokeQuiet(mGetChatId, msg);
-                if (cidO != null) eid = String.valueOf(cidO);
-                if ("0".equals(eid) || "null".equals(eid) || eid.trim().isEmpty()) return;
-                final String chatId = eid;
+Object cidO = invokeQuiet(mGetChatId, msg);
+if (cidO != null) eid = String.valueOf(cidO);
+
+// ===== 新版 HelloTalk 历史记录修复 =====
+// 新版部分 HTIMMessage 的 chatId getter 会得到 0/null。
+// 旧版保持原行为；只有检测到新版 m4t 时，才用当前聊天页 H3()
+// 已确认的 currentChatId 作为兜底。
+boolean eidInvalid = eid == null
+        || eid.trim().isEmpty()
+        || "0".equals(eid)
+        || "null".equalsIgnoreCase(eid);
+
+if (eidInvalid && newReplyControllerDetected
+        && currentChatId != null
+        && !currentChatId.trim().isEmpty()
+        && !"0".equals(currentChatId)
+        && !"null".equalsIgnoreCase(currentChatId)) {
+
+    log("新版接收历史 chatId 兜底: raw=" + eid
+            + " current=" + currentChatId);
+
+    eid = currentChatId;
+    eidInvalid = false;
+}
+
+if (eidInvalid) return;
+
+final String chatId = eid;
 
                 String sn = null;
                 Object sno = invokeQuiet(mGetSenderName, msg);
@@ -1717,6 +1741,26 @@ String quote = selectedReplyText;
                 }
             }
 
+// ===== 新版括号问答增强 =====
+// 如果新版回复框已经明确选中一条消息，就告诉 AI：
+// 这是程序直接从 m4t.f() 取得的真实引用，不允许再说“不知道对方说了什么”。
+// 旧版没有 newReplyControllerDetected，因此完全不受影响。
+if (pbm && newReplyControllerDetected
+        && hasSelectedReply
+        && quote != null
+        && !quote.trim().isEmpty()) {
+
+    ttt = "【程序已确认当前选中消息】以下被选原话来自 HelloTalk 当前回复框，"
+            + "是真实且明确的上下文。"
+            + "回答时必须直接依据这条原话，不得声称不知道对方说了什么或上下文不足。\n"
+            + ttt;
+}
+
+// 新版括号问答调试：确认实际送进 askAiQuestion() 的文本。
+if (pbm && newReplyControllerDetected) {
+    log("新版括号问答实际输入: "
+            + ttt.replace("\n", " | "));
+}
             if (qis != null) {
                 File qf = new File(qis);
                 if (qf.exists() && qf.length() > 0) {
@@ -2399,8 +2443,29 @@ private static void hookSendMessage(ClassLoader cl) {
             if (!(iso instanceof Boolean) || !((Boolean) iso)) return;
 
             Object cidO = invokeQuiet(mGetChatId, msg);
-            String chatId = (cidO != null) ? String.valueOf(cidO) : null;
-            if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equals(chatId)) return;
+String chatId = (cidO != null) ? String.valueOf(cidO) : null;
+
+// ===== 新版 HelloTalk 发出消息历史记录修复 =====
+// 只在新版 m4t 已检测到时使用当前页面 chatId 兜底；旧版逻辑不变。
+boolean chatIdInvalid = chatId == null
+        || chatId.trim().isEmpty()
+        || "0".equals(chatId)
+        || "null".equalsIgnoreCase(chatId);
+
+if (chatIdInvalid && newReplyControllerDetected
+        && currentChatId != null
+        && !currentChatId.trim().isEmpty()
+        && !"0".equals(currentChatId)
+        && !"null".equalsIgnoreCase(currentChatId)) {
+
+    log("新版发送历史 chatId 兜底: raw=" + chatId
+            + " current=" + currentChatId);
+
+    chatId = currentChatId;
+    chatIdInvalid = false;
+}
+
+if (chatIdInvalid) return;
 
             Object mto = invokeQuiet(mGetMsgType, msg);
             String mt = (mto != null) ? String.valueOf(mto) : null;

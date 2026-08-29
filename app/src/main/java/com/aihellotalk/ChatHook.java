@@ -469,7 +469,9 @@ private static boolean refreshSelectedReplyFromNewController() {
     }
 
     try {
-        // f() = obtainReplyMsg
+        // 新版逆向确认：
+        // m4t.f() = obtainReplyMsg
+        // 它返回的就是“输入框此刻真正引用的 HTIMMessage”
         Object msg = XposedHelpers.callMethod(controller, "f");
 
         // 当前已经取消回复 / 根本没有回复对象
@@ -479,29 +481,42 @@ private static boolean refreshSelectedReplyFromNewController() {
             return true;
         }
 
-        // 这是输入框当前真正引用的 HTIMMessage
+        // 先沿用原来的通用解析，读取 mine/type/text/msgId 等。
+        // 这部分旧版也在使用，所以不要改 applySelectedReply() 本身。
         applySelectedReply(msg);
 
-        // 防止极端情况下切换聊天后拿到了旧聊天页控制器
-        if (selectedReplyChatId != null
-                && currentChatId != null
+        // ===== 新版专用修复 =====
+        //
+        // 新版回复控制器 m4t.f() 本身已经代表“当前聊天输入框正在回复的消息”。
+        // 某些新版 HTIMMessage 临时/引用对象中的 chatId 会是 0、null，
+        // 甚至可能不是当前页面真正的会话 id。
+        //
+        // 旧代码拿这个不可靠的 selectedReplyChatId 去和 currentChatId 比较，
+        // 会把已经正确捕获到的回复对象误删掉。
+        //
+        // 因此这里只在新版 m4t 路径里，把回复对象归属到
+        // ChatDetailFragment.H3() 已经确认的当前页面 chatId。
+        // 旧版 kr0.d 路径完全不受影响。
+        if (currentChatId != null
+                && !currentChatId.trim().isEmpty()
                 && !"0".equals(currentChatId)
-                && !selectedReplyChatId.equals(currentChatId)) {
+                && !"null".equalsIgnoreCase(currentChatId)) {
 
-            log("新版回复对象 chatId 不一致，丢弃: reply="
-                    + selectedReplyChatId
+            String rawReplyChatId = selectedReplyChatId;
+            selectedReplyChatId = currentChatId;
+
+            log("新版回复对象绑定当前会话: rawReplyChatId="
+                    + rawReplyChatId
                     + " current="
                     + currentChatId);
-
-            resetSelectedReply();
-
-        } else {
-
-            log("新版 obtainReplyMsg 精准读取: mine="
-                    + selectedReplyIsMine
-                    + " text="
-                    + selectedReplyText);
         }
+
+        log("新版 obtainReplyMsg 精准读取: mine="
+                + selectedReplyIsMine
+                + " chatId="
+                + selectedReplyChatId
+                + " text="
+                + selectedReplyText);
 
         return true;
 
@@ -516,6 +531,7 @@ private static boolean refreshSelectedReplyFromNewController() {
         return true;
     }
 }
+
     private static void hookInputReplyBar(ClassLoader cl) {
 
     // 旧版 5.7.0 兜底：kr0.d

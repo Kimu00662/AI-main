@@ -209,6 +209,11 @@ private static volatile int roundRobinIndex = 0;
         return n;
     }
 
+// 给 ChatHook 新版实时消息列表读取使用。
+// 只返回设置里的上下文条数，不改变任何 AI 逻辑。
+public static int getMaxChatMessagesForHook() {
+    return getMaxChatMessages();
+}
     private static String getBannedWords() {
         String bw = "";
         try {

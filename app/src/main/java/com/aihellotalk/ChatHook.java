@@ -488,6 +488,25 @@ private static boolean refreshSelectedReplyFromNewController() {
         // 这部分旧版也在使用，所以不要改 applySelectedReply() 本身。
         applySelectedReply(msg);
 
+// ===== 新版专用：过滤 m4t.f() 的伪回复对象 =====
+//
+// 新版在“没有真正选择回复框”时，某些情况下 m4t.f()
+// 仍可能返回一个 HTIMMessage 占位对象。
+// 如果解析出的所谓回复文字恰好就是当前 ChatDetailFragment.H3()
+// 得到的 chatId，那么它绝不是真正聊天正文。
+//
+// 只在新版 m4t 路径处理，不影响旧版 kr0.d。
+if (selectedReplyValid
+        && selectedReplyText != null
+        && currentChatId != null
+        && selectedReplyText.trim().equals(currentChatId.trim())) {
+
+    log("新版伪回复对象已忽略: text=chatId=" + currentChatId);
+
+    resetSelectedReply();
+
+    return true;
+}
         // ===== 新版专用修复 =====
         //
         // 新版回复控制器 m4t.f() 本身已经代表“当前聊天输入框正在回复的消息”。

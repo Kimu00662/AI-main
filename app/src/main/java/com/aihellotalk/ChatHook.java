@@ -165,24 +165,24 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
 }
 
     private static Method ensureBeanGetText(Object bean) {
-    Method m = mBeanGetText;
-    if (m != null) return m;
     if (bean == null) return null;
     try {
-        m = bean.getClass().getMethod("getText");
-    } catch (Throwable t1) {
-        try {
-            m = bean.getClass().getMethod("p");
-        } catch (Throwable t2) {
-            try {
-                m = bean.getClass().getMethod("u");
-            } catch (Throwable t3) {
-                return null;
-            }
-        }
-    }
-    mBeanGetText = m;
-    return m;
+        // 先尝试直接获取
+        Method m = bean.getClass().getMethod("getText");
+        m.setAccessible(true);
+        return m;
+    } catch (Throwable t1) {}
+    try {
+        Method m = bean.getClass().getMethod("p");
+        m.setAccessible(true);
+        return m;
+    } catch (Throwable t2) {}
+    try {
+        Method m = bean.getClass().getMethod("u");
+        m.setAccessible(true);
+        return m;
+    } catch (Throwable t3) {}
+    return null;
 }
 
     private static Object invokeQuiet(Method m, Object target, Object... args) {

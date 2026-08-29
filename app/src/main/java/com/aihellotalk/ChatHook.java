@@ -460,7 +460,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
                             currentQuotedImagePath = lp;
                             currentQuotedImageMissing = false;
                         } else if ("image".equals(selectedReplyMsgType)
-| "photo".equals(selectedReplyMsgType)) {
+        || "photo".equals(selectedReplyMsgType)) {
                             currentQuotedImagePath = null;
                             currentQuotedImageMissing = true;
                         }
@@ -555,6 +555,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
                 if (textBean == null) return null;
 
                 Object bean = invokeQuiet(mGetMsgContentTyped, msg, textBean, false);
+if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, textBean);
                 if (bean == null) return null;
 
                 Object t = invokeQuiet(ensureBeanGetText(bean), bean);
@@ -568,6 +569,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
                 if (transBean == null) return null;
 
                 Object bean = invokeQuiet(mGetMsgContentTyped, msg, transBean, false);
+if (bean == null) bean = invokeQuiet(mGetMsgContentTyped, msg, transBean);
                 if (bean == null) return null;
 
                 try {

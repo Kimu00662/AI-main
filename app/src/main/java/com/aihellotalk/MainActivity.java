@@ -839,8 +839,24 @@ String out = runRoot(
             final String jsonStr = runRoot("rm -f " + tmpPath + "; cp /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json " + tmpPath + " 2>/dev/null; cat " + tmpPath);
             runOnUiThread(() -> {
                 try {
-                    if (jsonStr != null && !jsonStr.trim().isEmpty()) {
-                        JSONArray history = new JSONArray(jsonStr);
+                if (jsonStr != null && !jsonStr.trim().isEmpty()) {
+    // 修复旧版历史文件开头可能是 "[," 的损坏问题
+    String fixedJson = jsonStr.trim();
+    if (fixedJson.startsWith("[,")) {
+        fixedJson = "[" + fixedJson.substring(2);
+    } else if (fixedJson.startsWith("[")) {
+        int p = 1;
+        while (p < fixedJson.length()
+                && (fixedJson.charAt(p) == ','
+                    || fixedJson.charAt(p) == ' '
+                    || fixedJson.charAt(p) == '\t'
+                    || fixedJson.charAt(p) == '\n'
+                    || fixedJson.charAt(p) == '\r')) {
+            p++;
+        }
+        if (p > 1) fixedJson = "[" + fixedJson.substring(p);
+    }
+    JSONArray history = new JSONArray(fixedJson);
                         for (int i = 0; i < history.length(); i++) {
                             JSONObject obj = history.getJSONObject(i);
                             String role = obj.optString("role", "");

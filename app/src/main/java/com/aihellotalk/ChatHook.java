@@ -1415,9 +1415,50 @@ new Thread(() -> {
 
         if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
 
-        if (!currentChatId.isEmpty() && !"0".equals(currentChatId)) {
-            AITranslator.updateFriendNationality(currentChatId, latestNationality);
-        }
+        // ===== 新版 HelloTalk：打开聊天页面立即注册到 HT 遥控好友列表 =====
+//
+// H3() 已经取得当前 chatId，Q3()->getChatUser() 已经取得真实好友资料。
+// 这里直接创建/刷新 htai_friends.json。
+// 旧版 startChat 路径完全不受影响。
+if (currentChatId != null
+        && !currentChatId.trim().isEmpty()
+        && !"0".equals(currentChatId)
+        && !"null".equalsIgnoreCase(currentChatId)) {
+
+    String friendName = latestPartnerName != null
+            ? latestPartnerName.trim()
+            : "";
+
+    if (!friendName.isEmpty()
+            && !friendName.equals(currentChatId)) {
+
+        // 如果这个好友以前已经注册过，保留其原有语言设置；
+        // 如果是第一次出现，getFriendLang() 默认返回 en，
+        // 后续正常翻译时原有逻辑仍会自动更新语言。
+        String knownLang = AITranslator.getFriendLang(currentChatId);
+
+        AITranslator.registerFriend(
+                currentChatId,
+                friendName,
+                knownLang,
+                latestNationality
+        );
+
+        log("新版好友已注册到HT遥控: chatId="
+                + currentChatId
+                + " name="
+                + friendName);
+
+    } else {
+
+        // 昵称暂时没取到时，不创建一个纯数字假好友。
+        // 如果这个好友本来已经存在，只更新国籍即可。
+        AITranslator.updateFriendNationality(
+                currentChatId,
+                latestNationality
+        );
+    }
+}
         log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
     } catch (Throwable ignored) {}
 }

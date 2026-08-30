@@ -1578,6 +1578,12 @@ final String chatId = eid;
                     else return;
                 }
 
+if (pendingSelectedForeign != null) {
+    log("新版发送判定: mine=" + isMine
+            + " type=" + mt
+            + " text=[" + text + "]"
+            + " pending=[" + pendingSelectedForeign + "]");
+}
                 if (isMine
         && pendingSelectedForeign != null
         && pendingSelectedForeign.equals(text)) {

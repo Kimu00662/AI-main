@@ -100,6 +100,7 @@ private static volatile String pendingSendQuote = null;
     private static final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     private static volatile String pendingSelectedForeign = null;
+    private static volatile boolean pendingFriendRegister = false;
     private static volatile String lastPickerResult = null;
     private static volatile String lastPickerOrig = null;
     private static volatile String lastPickerPns = null;
@@ -1578,9 +1579,13 @@ final String chatId = eid;
                     else return;
                 }
 
-                if (isMine
+                if (newReplyControllerDetected
+        && pendingFriendRegister
+        && isMine
         && text != null
-        && AITranslator.mySentDrafts.get(text) != null) {
+        && AITranslator.mySentDrafts.get(text) != null
+        && versionEdit != null
+        && versionEdit.getText().toString().trim().isEmpty()) {
 
     // ===== 新版：只有翻译结果真正发送出去以后才创建遥控好友 =====
     if (newReplyControllerDetected
@@ -2610,6 +2615,7 @@ if (newReplyControllerDetected
                 } catch (Exception ignored) {}
 
                 pendingSelectedForeign = foreign;
+                pendingFriendRegister = true;
                 lastPickerResult = result;
                 lastPickerOrig = origChinese;
                 lastPickerPns = pn;

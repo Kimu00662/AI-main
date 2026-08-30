@@ -1716,9 +1716,18 @@ try {
     }
 
     private static String stripFlipMarks(String s) {
-        if (s == null) return null;
-        return FLIP_MARKS_PATTERN.matcher(s).replaceAll("").trim();
-    }
+    if (s == null) return null;
+    return FLIP_MARKS_PATTERN.matcher(s).replaceAll("").trim();
+}
+
+private static boolean isDirtyHistoryContent(String content) {
+    if (content == null) return true;
+    String t = content.trim();
+    if (t.isEmpty()) return true;
+    if (t.matches("\\d{6,}")) return true;
+    if (t.startsWith("[{") || t.startsWith("{")) return true;
+    return false;
+}
 
     public static String sanitizeForeignText(String s) {
         if (s == null) return "";
@@ -2136,31 +2145,40 @@ try {
                              .append(imgMemories.toString()).append("\n");
             }
 
-            int maxChatMessages = getMaxChatMessages();
+int visibleIndex = 0;
+boolean hasContext = false;
+boolean hasOther = false;
+for (int i = startIdx; i < fullHistory.length(); i++) {
+    JSONObject msg = fullHistory.getJSONObject(i);
+    String role = msg.optString("role", "");
+    String content = msg.optString("content", "");
 
-            int startIdx = Math.max(0, fullHistory.length() - maxChatMessages);
+    // 过滤旧脏数据：纯数字chatId、{name=xxx}、[{...}] 等
+    if (isDirtyHistoryContent(content)) continue;
 
-            int visibleIndex = 0;
-            for (int i = startIdx; i < fullHistory.length(); i++) {
-                JSONObject msg = fullHistory.getJSONObject(i);
-                String role = msg.optString("role", "");
-                String content = msg.optString("content", "");
+    String prefix = msg.optBoolean("oneTime", false) ? "[一次性上下文] " : "";
+    visibleIndex++;
+    hasContext = true;
 
-                String prefix = msg.optBoolean("oneTime", false) ? "[一次性上下文] " : "";
-                visibleIndex++;
+    if ("user".equals(role)) {
+        hasOther = true;
+        scriptBuilder.append("[").append(visibleIndex).append("] ")
+                .append(prefix)
+                .append(scriptLine("对方", content, "中文意思"));
+    } else if ("assistant".equals(role)) {
+        scriptBuilder.append("[").append(visibleIndex).append("] ")
+                .append(prefix)
+                .append(scriptLine("我", content, "中文原意"));
+    }
+}
 
-                if ("user".equals(role)) {
-                    scriptBuilder.append("[").append(visibleIndex).append("] ")
-                            .append(prefix)
-                            .append(scriptLine("对方", content, "中文意思"));
-                } else if ("assistant".equals(role)) {
-                    scriptBuilder.append("[").append(visibleIndex).append("] ")
-                            .append(prefix)
-                            .append(scriptLine("我", content, "中文原意"));
-                }
-            }
+if (!hasContext) {
+    scriptBuilder.append("（当前没有可用的聊天上下文，请直接翻译本句，不要推断或声称对方说了什么。）\n");
+} else if (!hasOther) {
+    scriptBuilder.append("（当前上下文中没有对方的消息，请不要声称对方说了什么；直接翻译本句，或判断用户是在补充自己的历史消息。）\n");
+}
 
-            scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
+scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
             try {

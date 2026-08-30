@@ -2234,28 +2234,7 @@ if (!pbm && newReplyControllerDetected) {
             AITranslator.getMaxChatMessagesForHook()
     );
 }
-
-// 代码级回复目标判定：直接看实时上下文最后一条是谁说的
-if (!pbm && !hasSelectedReply && newReplyControllerDetected
-        && liveTranslateContext != null && !liveTranslateContext.trim().isEmpty()) {
-    String lastLine = null;
-    boolean lastMine = false;
-    String[] lines = liveTranslateContext.split("\n");
-    for (int i = lines.length - 1; i >= 0; i--) {
-        String line = lines[i].trim();
-        if (line.startsWith("我：")) { lastLine = line.substring(2).trim(); lastMine = true; break; }
-        if (line.startsWith("对方：")) { lastLine = line.substring(3).trim(); lastMine = false; break; }
-    }
-    if (lastLine != null && !lastLine.isEmpty()) {
-        if (lastMine) {
-            ttt = "【我对我自己之前这条外语消息的补充】：" + lastLine + "\n【补充内容】：" + ttt;
-        } else {
-            ttt = "【我要回复的对方原话】：" + lastLine + "\n【我的回复】：" + ttt;
-        }
-    }
-}
-
-final String ftt = ttt;
+            final String ftt = ttt;
             final String rci = text;
             final String flive = liveTranslateContext;
             if (qis != null) currentQuotedImagePath = null;
@@ -2478,18 +2457,6 @@ if (newReplyControllerDetected
     }
 }
 
-
-
-    if (lastLine == null || lastLine.isEmpty()) return prompt;
-
-    if (lastMine) {
-        return "【我对我自己之前这条外语消息的补充】：" + lastLine + "\n【补充内容】：" + prompt;
-    } else {
-        return "【我要回复的对方原话】：" + lastLine + "\n【我的回复】：" + prompt;
-    }
-}
-
-private static void showAnswerDialog(EditText edit, String answer) {
     private static void showAnswerDialog(EditText edit, String answer) {
         android.content.Context ctx = edit.getContext();
         final String showText = (answer == null) ? "" : answer.trim().replaceAll("\\*+", "");

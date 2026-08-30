@@ -212,7 +212,12 @@ private static volatile int roundRobinIndex = 0;
 // 给 ChatHook 新版实时消息列表读取使用。
 // 只返回设置里的上下文条数，不改变任何 AI 逻辑。
 public static int getMaxChatMessagesForHook() {
-    return getMaxChatMessages();
+    int n = readConfigInt("max_chat_messages", 30);
+
+    if (n < 0) n = 0;
+    if (n > 200) n = 200;
+
+    return n;
 }
     private static String getBannedWords() {
         String bw = "";
@@ -1113,6 +1118,111 @@ private static OkHttpClient getReceiveClient() {
         return reverseTranslateClient;
     }
 
+// ===== 新版 HelloTalk：实时括号问答专用 =====
+//
+// 只给新版 ChatHook 使用。
+// 绝对不调用 loadHistory()。
+// 新版问答只相信 ChatHook 从当前 HelloTalk 页面取得的真实内容。
+public static String askAiQuestionLive(String text, String chatId) throws IOException {
+
+    maybeRecheckMode();
+
+    if (text == null) return "";
+
+    text = text.trim();
+
+    if (text.isEmpty()) return text;
+
+    String cleanText = text
+            .replaceAll("(?i)\\[PURE_BRACKET_MODE\\]\\s*", "")
+            .trim();
+
+    if (cleanText.isEmpty()) return text;
+
+    try {
+
+        JSONArray messages = new JSONArray();
+
+        // 好友长期档案可以保留，
+        // 但先强制移除当前 chatId，防止旧档案曾被错误历史污染。
+        String safeProfile = profileBlock(chatId);
+
+        if (safeProfile == null) {
+            safeProfile = "";
+        }
+
+        if (chatId != null
+                && !chatId.trim().isEmpty()) {
+
+            safeProfile = safeProfile.replace(
+                    chatId.trim(),
+                    "[聊天ID已过滤]"
+            );
+        }
+
+        String sysPrompt =
+                "你是专属聊天军师与私人语言顾问。\n"
+                + "用户正在和一个外国朋友聊天，并正在向你询问当前聊天内容。\n\n"
+
+                + "【新版实时聊天最高优先级规则】\n"
+                + "1. 本次用户输入中提供的 HelloTalk 实时聊天，是程序直接从当前聊天页面读取的真实消息。\n"
+                + "2. 你只能依据本次输入中明确提供的聊天消息回答最近聊天相关问题。\n"
+                + "3. 绝对禁止把聊天ID、用户ID、账号编号、QQ号或任何没有明确聊天语义的纯数字，当成任何一方说过的话。\n"
+                + "4. 如果当前提供的实时上下文里没有“对方：”消息，而用户问“对方说了什么”，必须明确回答当前上下文没有提供对方消息。\n"
+                + "5. 如果当前提供的实时上下文里没有“我：”消息，而用户问“我说了什么”，必须明确回答当前上下文没有提供我的消息。\n"
+                + "6. 没有信息就明确说没有信息，禁止为了回答问题而猜测、补全或编造不存在的聊天内容。\n"
+                + "7. 如果输入中包含【我选中的对方原话】，直接依据该真实原话回答。\n"
+                + "8. 如果输入中包含【我选中的我自己的历史消息】，直接依据该真实原话回答，并理解为用户正在审视或补充自己的消息。\n"
+                + "9. 请使用中文清楚回答，禁止使用 Markdown 格式排版。\n"
+
+                + safeProfile;
+
+        messages.put(
+                createMessageObj(
+                        "system",
+                        sysPrompt
+                )
+        );
+
+        // 关键：
+        // 这里只有 ChatHook 传进来的实时内容。
+        // 不读取任何模块旧 history。
+        messages.put(
+                createMessageObj(
+                        "user",
+                        cleanText
+                )
+        );
+
+        String answer = callChatMessages(messages);
+
+        if (answer == null
+                || answer.trim().isEmpty()) {
+
+            return "当前没有足够的真实聊天内容可以回答。";
+        }
+
+        answer = answer.trim();
+
+        // ===== 最后的硬保险 =====
+        //
+        // 即使模型自己胡乱输出当前 chatId，
+        // 也绝不允许把这个编号展示给用户。
+        if (chatId != null
+                && !chatId.trim().isEmpty()
+                && answer.contains(chatId.trim())) {
+
+            return "当前提供的真实聊天上下文不足，无法确认相关内容。"
+                    + "我不会把聊天ID或其它编号当成聊天消息。";
+        }
+
+        return answer;
+
+    } catch (JSONException e) {
+
+        throw new IOException("构建新版实时问答 Messages 失败");
+    }
+}
     public static String askAiQuestion(String text, String chatId) throws IOException {
         maybeRecheckMode();
         text = text.trim();

@@ -2741,17 +2741,31 @@ private static String fixUrl(String url) {
         return new File("/data/data/com.hellotalk/files/htai_hist_" + chatId + ".json");
     }
 
-    public static JSONArray loadHistory(String chatId) {
-        synchronized (fileLock) {
-            File f = historyFile(chatId);
-            if (!f.exists()) return new JSONArray();
-            try (BufferedReader r = new BufferedReader(new FileReader(f))) {
-                StringBuilder sb = new StringBuilder(); String line;
-                while ((line = r.readLine()) != null) sb.append(line);
-                return new JSONArray(sb.toString());
-            } catch (Exception e) { return new JSONArray(); }
-        }
+public static JSONArray loadHistory(String chatId) {
+    synchronized (fileLock) {
+        File f = historyFile(chatId);
+        if (!f.exists()) return new JSONArray();
+        try (BufferedReader r = new BufferedReader(new FileReader(f))) {
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            String s = sb.toString().trim();
+            // 修复旧版本损坏：开头 "[," 或 "[ ," 自动改成 "["
+            if (s.startsWith("[")) {
+                int p = 1;
+                while (p < s.length()
+                        && (s.charAt(p) == ','
+                            || s.charAt(p) == ' '
+                            || s.charAt(p) == '\t'
+                            || s.charAt(p) == '\n'
+                            || s.charAt(p) == '\r')) {
+                    p++;
+                }
+                if (p > 1) s = "[" + s.substring(p);
+            }
+            return new JSONArray(s);
+        } catch (Exception e) { return new JSONArray(); }
     }
+}
 
     private static void writeHistoryLocked(String chatId, JSONArray history) {
     try {

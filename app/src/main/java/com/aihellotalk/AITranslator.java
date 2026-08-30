@@ -2145,6 +2145,10 @@ private static boolean isDirtyHistoryContent(String content) {
                              .append(imgMemories.toString()).append("\n");
             }
 
+int maxChatMessages = getMaxChatMessages();
+
+int startIdx = Math.max(0, fullHistory.length() - maxChatMessages);
+
 int visibleIndex = 0;
 boolean hasContext = false;
 boolean hasOther = false;

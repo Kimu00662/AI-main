@@ -1655,13 +1655,29 @@ final String chatId = eid;
         + " skip=" + shouldSkipHistory(text)
         + " mine=" + isMine
         + " text=[" + text + "]");
-                if (isNew && !shouldSkipHistory(text)) {
-                    final String fm = mid; final String ft = text; final long fst = st; final boolean fmn = isMine;
-                    historyExecutor.execute(() -> {
-                        if (fmn) AITranslator.appendHistory(chatId, fm, "assistant", ft, fst, null, false);
-                        else AITranslator.appendHistory(chatId, fm, "user", ft, fst, null, false);
-                    });
-                }
+              if (isNew && !shouldSkipHistory(text)) {
+    if (isMine) {
+        AITranslator.appendHistory(
+                chatId,
+                mid,
+                "assistant",
+                text,
+                st,
+                null,
+                false
+        );
+    } else {
+        AITranslator.appendHistory(
+                chatId,
+                mid,
+                "user",
+                text,
+                st,
+                null,
+                false
+        );
+    }
+}
 
                 if (text.startsWith("[")) return;
                 if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;

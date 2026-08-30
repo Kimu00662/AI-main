@@ -1658,8 +1658,16 @@ if ("chat_user_profile".equals(mid)) {
         + " skip=" + shouldSkipHistory(text)
         + " mine=" + isMine
         + " text=[" + text + "]");
-                              if (isNew && !shouldSkipHistory(text)) {
-    String capturedQuote = extractQuoteForHistory(msg, chatId, isMine);
+                                             if (isNew && !shouldSkipHistory(text)) {
+    String capturedQuote = null;
+    if (isMine && pendingSendChatId != null && pendingSendChatId.equals(chatId)) {
+        capturedQuote = pendingSendQuote;
+        pendingSendQuote = null;
+        pendingSendChatId = null;
+    }
+    if (capturedQuote == null) {
+        capturedQuote = extractQuoteForHistory(msg, chatId, isMine);
+    }
     if (isMine) {
         AITranslator.appendHistory(chatId, mid, "assistant", text, st, capturedQuote, false);
     } else {
@@ -2110,6 +2118,15 @@ if (hasSelectedReply && quote != null
     hasSelectedReply = false;
     selectedReplyMine = false;
     quote = null;
+}
+
+// 把本次选中的引用暂存，写历史时优先使用
+if (hasSelectedReply && selectedReplyText != null && !selectedReplyText.trim().isEmpty()) {
+    pendingSendQuote = selectedReplyText.trim();
+    pendingSendChatId = cs;
+} else {
+    pendingSendQuote = null;
+    pendingSendChatId = null;
 }
 
 final String qis = currentQuotedImagePath;

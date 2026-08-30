@@ -835,7 +835,8 @@ String out = runRoot(
     private void loadHTMessagesRoot(String chatId) {
         messageContainer.removeAllViews();
         new Thread(() -> {
-            final String jsonStr = runRoot("cp /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json /data/local/tmp/htai_hist_copy.json 2>/dev/null; cat /data/local/tmp/htai_hist_copy.json");
+            final String tmpPath = "/data/local/tmp/htai_hist_copy_" + chatId + ".json";
+            final String jsonStr = runRoot("rm -f " + tmpPath + "; cp /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json " + tmpPath + " 2>/dev/null; cat " + tmpPath);
             runOnUiThread(() -> {
                 try {
                     if (jsonStr != null && !jsonStr.trim().isEmpty()) {

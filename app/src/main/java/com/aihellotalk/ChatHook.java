@@ -172,34 +172,38 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     }
 }
 
-            private static Method ensureBeanGetText(Object bean) {
+private static Method ensureBeanGetText(Object bean) {
     if (bean == null) return null;
+
     try {
         Method m = bean.getClass().getMethod("getText");
         m.setAccessible(true);
         return m;
-    } catch (Throwable t1) {}
+    } catch (Throwable ignored) {}
+
+    // ===== 新版 HelloTalk =====
+    // 新版 IMTextBean / IMTranslateBean 的文字 getter
+    try {
+        Method m = bean.getClass().getMethod("u");
+        m.setAccessible(true);
+        return m;
+    } catch (Throwable ignored) {}
+
+    // ===== 旧版兜底 =====
     try {
         Method m = bean.getClass().getMethod("r");
         m.setAccessible(true);
         return m;
-    } catch (Throwable t2) {}
+    } catch (Throwable ignored) {}
+
     try {
         Method m = bean.getClass().getMethod("p");
         m.setAccessible(true);
         return m;
-    } catch (Throwable t3) {}
+    } catch (Throwable ignored) {}
+
     return null;
 }
-
-    private static Object invokeQuiet(Method m, Object target, Object... args) {
-        if (m == null || target == null) return null;
-        try {
-            return (args == null || args.length == 0) ? m.invoke(target) : m.invoke(target, args);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
 
     private static final java.util.concurrent.ExecutorService historyExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> {

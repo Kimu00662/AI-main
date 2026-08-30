@@ -1649,6 +1649,12 @@ final String chatId = eid;
                 if (sto instanceof Long) st = (Long) sto;
 
                 boolean isNew = recordedMsgIds.add(chatId + "_" + mid);
+                log("历史写入判定: chatId=" + chatId
+        + " mid=" + mid
+        + " isNew=" + isNew
+        + " skip=" + shouldSkipHistory(text)
+        + " mine=" + isMine
+        + " text=[" + text + "]");
                 if (isNew && !shouldSkipHistory(text)) {
                     final String fm = mid; final String ft = text; final long fst = st; final boolean fmn = isMine;
                     historyExecutor.execute(() -> {

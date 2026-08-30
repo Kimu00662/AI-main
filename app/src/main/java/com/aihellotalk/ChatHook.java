@@ -2095,9 +2095,22 @@ if (pbm && newReplyControllerDetected) {
                 ttt += "\n[QUOTED_IMAGE_BUT_PATH_MISSING]";
             }
 
+// ===== 新版普通翻译：读取当前页面真实聊天上下文 =====
+//
+// 括号问答前面已经单独处理。
+// 这里给新版普通翻译和新版回复框翻译准备真实上下文，
+// 用于替代已经确认有问题的模块旧 history。
+String liveTranslateContext = null;
+
+if (!pbm && newReplyControllerDetected) {
+
+    liveTranslateContext = buildNewLiveChatContext(
+            AITranslator.getMaxChatMessagesForHook()
+    );
+}
             final String ftt = ttt;
             final String rci = text;
-
+            final String flive = liveTranslateContext;
             if (qis != null) currentQuotedImagePath = null;
 
             if (pbm) {
@@ -2140,7 +2153,35 @@ if (pbm && newReplyControllerDetected) {
                             chatRetryCountMap.put(cs, 0);
                         }
 
-                        String result = AITranslator.translateForPicker(ftt, tl, cs, retry);
+                        String result;
+
+// ===== 新版 HelloTalk =====
+// 已经成功读取到当前页面真实消息时，
+// 普通翻译和回复框翻译都使用真实 UI 上下文，
+// 完全不读取错误的 loadHistory()。
+if (newReplyControllerDetected
+        && flive != null
+        && !flive.trim().isEmpty()) {
+
+    result = AITranslator.translateForPickerLive(
+            ftt,
+            tl,
+            cs,
+            retry,
+            flive
+    );
+
+} else {
+
+    // 旧版 HelloTalk 或实时列表读取失败：
+    // 完全保持原来的旧逻辑。
+    result = AITranslator.translateForPicker(
+            ftt,
+            tl,
+            cs,
+            retry
+    );
+}
                         isTranslatingAPI = false;
                         String fr = result;
 

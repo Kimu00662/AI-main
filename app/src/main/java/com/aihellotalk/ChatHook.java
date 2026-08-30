@@ -2235,11 +2235,24 @@ if (!pbm && newReplyControllerDetected) {
     );
 }
 
-// 代码级回复目标判定：不再让 AI 瞎猜。
-// 直接看实时上下文最后一条是谁说的，然后写进输入。
+// 代码级回复目标判定：直接看实时上下文最后一条是谁说的
 if (!pbm && !hasSelectedReply && newReplyControllerDetected
         && liveTranslateContext != null && !liveTranslateContext.trim().isEmpty()) {
-    ttt = applyAutoReplyTarget(ttt, liveTranslateContext);
+    String lastLine = null;
+    boolean lastMine = false;
+    String[] lines = liveTranslateContext.split("\n");
+    for (int i = lines.length - 1; i >= 0; i--) {
+        String line = lines[i].trim();
+        if (line.startsWith("我：")) { lastLine = line.substring(2).trim(); lastMine = true; break; }
+        if (line.startsWith("对方：")) { lastLine = line.substring(3).trim(); lastMine = false; break; }
+    }
+    if (lastLine != null && !lastLine.isEmpty()) {
+        if (lastMine) {
+            ttt = "【我对我自己之前这条外语消息的补充】：" + lastLine + "\n【补充内容】：" + ttt;
+        } else {
+            ttt = "【我要回复的对方原话】：" + lastLine + "\n【我的回复】：" + ttt;
+        }
+    }
 }
 
 final String ftt = ttt;
@@ -2465,26 +2478,7 @@ if (newReplyControllerDetected
     }
 }
 
-private static String applyAutoReplyTarget(String prompt, String liveContext) {
-    if (prompt == null || liveContext == null || liveContext.trim().isEmpty()) return prompt;
 
-    String lastLine = null;
-    boolean lastMine = false;
-
-    String[] lines = liveContext.split("\n");
-    for (int i = lines.length - 1; i >= 0; i--) {
-        String line = lines[i].trim();
-        if (line.startsWith("我：")) {
-            lastLine = line.substring(2).trim();
-            lastMine = true;
-            break;
-        }
-        if (line.startsWith("对方：")) {
-            lastLine = line.substring(3).trim();
-            lastMine = false;
-            break;
-        }
-    }
 
     if (lastLine == null || lastLine.isEmpty()) return prompt;
 

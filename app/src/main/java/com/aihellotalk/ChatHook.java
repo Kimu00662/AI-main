@@ -2115,8 +2115,20 @@ refreshSelectedReplyFromNewController();
 boolean hasSelectedReply = selectedReplyValid;
 boolean selectedReplyMine = selectedReplyIsMine;
 String quote = selectedReplyText;
-            final String qis = currentQuotedImagePath;
-            final boolean qms = currentQuotedImageMissing;
+
+// 修复：m4t.f() 在没有真实回复时，可能返回输入框里的草稿。
+// 如果“回复文本”就是输入框当前内容，说明没有真实引用回复。
+String inputNow = edit.getText().toString().trim();
+if (hasSelectedReply && quote != null
+        && quote.trim().equals(inputNow)) {
+    resetSelectedReply();
+    hasSelectedReply = false;
+    selectedReplyMine = false;
+    quote = null;
+}
+
+final String qis = currentQuotedImagePath;
+final boolean qms = currentQuotedImageMissing;
 
             boolean pbm = isPureBracketQuery(text);
             String cleanText = text;

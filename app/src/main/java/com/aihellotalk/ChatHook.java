@@ -1643,7 +1643,10 @@ final String chatId = eid;
 }
                 Object mio = invokeQuiet(mGetMsgId, msg);
                 String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
-
+// 新版 HelloTalk 的资料占位消息，不是真实聊天内容
+if ("chat_user_profile".equals(mid)) {
+    return;
+}
                 long st = System.currentTimeMillis();
                 Object sto = invokeQuiet(mGetSendTime, msg);
                 if (sto instanceof Long) st = (Long) sto;

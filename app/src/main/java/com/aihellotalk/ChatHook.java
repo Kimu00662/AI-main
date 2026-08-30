@@ -172,7 +172,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     }
 }
 
-private static Method ensureBeanGetText(Object bean) {
+            private static Method ensureBeanGetText(Object bean) {
     if (bean == null) return null;
 
     try {
@@ -204,6 +204,15 @@ private static Method ensureBeanGetText(Object bean) {
 
     return null;
 }
+
+    private static Object invokeQuiet(Method m, Object target, Object... args) {
+        if (m == null || target == null) return null;
+        try {
+            return (args == null || args.length == 0) ? m.invoke(target) : m.invoke(target, args);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     private static final java.util.concurrent.ExecutorService historyExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> {

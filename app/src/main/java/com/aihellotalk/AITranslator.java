@@ -2067,6 +2067,143 @@ try {
         }
     }
 
+// ===== 新版 HelloTalk：实时聊天上下文专用翻译 =====
+//
+// 只由新版 ChatHook 在成功读取当前聊天页面真实消息后调用。
+// 不读取 loadHistory()，避免错误 chatId 污染普通翻译和回复分析。
+// 旧版继续使用原来的 translateForPicker()。
+public static String translateForPickerLive(
+        String text,
+        String langCode,
+        String chatId,
+        boolean retry,
+        String liveContext) throws IOException {
+
+    maybeRecheckMode();
+
+    try {
+        JSONArray messages = new JSONArray();
+
+        String sysPrompt;
+
+        switch (langCode) {
+            case "ru": sysPrompt = promptRU; break;
+            case "uk": sysPrompt = promptUK; break;
+            case "ko": sysPrompt = promptKO; break;
+            case "es": sysPrompt = promptES; break;
+            case "ar": sysPrompt = promptAR; break;
+            case "pt": sysPrompt = promptPT; break;
+            case "fr": sysPrompt = promptFR; break;
+            case "de": sysPrompt = promptDE; break;
+            case "it": sysPrompt = promptIT; break;
+            case "tr": sysPrompt = promptTR; break;
+            case "nl": sysPrompt = promptNL; break;
+            case "pl": sysPrompt = promptPL; break;
+            case "kk": sysPrompt = promptKK; break;
+            case "cs": sysPrompt = promptCS; break;
+            default: sysPrompt = promptEN; break;
+        }
+
+        String spanishDirective = "";
+
+        if ("es".equals(langCode)) {
+            spanishDirective = getSpanishRegionDirective(null, 0, chatId);
+        }
+
+        String formatProtocol =
+                "\n\n【最高优先级输出格式控制】\n"
+                + "必须严格按以下格式输出，绝对禁止输出 JSON 或 Markdown 代码块！\n"
+                + "1. 先写你的上半部分简短分析（务必精简干练，直接说结论）。\n"
+                + "2. 分析写完后，换行，直接输出 4 个翻译选项。\n"
+                + "3. 【核心死命令】：这4个选项的每一行开头，必须且只能用 👉 这个表情符号作为唯一标记！\n"
+                + "4. 选项的单行格式：👉 外语文本 | 中文大意 | 语气标签\n"
+                + "5. 👉 符号绝对不能出现在分析中，只能作为选项开头。\n";
+
+        String bannedWords = getBannedWords();
+
+        String bannedRule = bannedWords.isEmpty()
+                ? ""
+                : "\n9. 【全局黑名单强制执行】：绝对禁止在分析或翻译结果中出现以下词汇或标点："
+                + bannedWords + "。\n";
+
+        String targetRule =
+                "\n【回复目标识别规则，必须遵守】\n"
+                + "1. 如果用户输入中包含【我要回复的对方原话】，"
+                + "说明用户是在回复对方这条消息。分析第一句必须写明："
+                + "\"你正在回复对方这句话：<原话>\"。\n"
+                + "2. 如果用户输入中包含【我对我自己之前这条外语消息的补充】，"
+                + "说明用户是在补充自己的历史消息。分析第一句必须写明："
+                + "\"你是在补充自己这条历史消息：<原话>\"。\n"
+                + "3. 如果没有显式选择回复目标，只能根据【当前 HelloTalk 真实对话】推断，"
+                + "不得把聊天ID、用户ID、QQ号或任何无上下文纯数字编号当成对方说过的话。\n"
+                + "4. 如果真实对话无法确定具体回复目标，就写："
+                + "\"我推断你是接着最近对话继续回复\"。\n"
+                + "5. 上半部分分析完成后再生成4个翻译选项。\n"
+                + bannedRule;
+
+        String contextRule =
+                "\n【新版实时上下文使用规则】\n"
+                + "下面的聊天记录来自 HelloTalk 当前聊天页面正在使用的真实消息列表。\n"
+                + "这里才是本次分析的对话依据。\n"
+                + "不得根据 chatId、用户ID或其它纯数字编号编造聊天内容。\n"
+                + "本次翻译的文字只取 <translate> 内的当前原文。\n";
+
+        String friendName = getFriendName(chatId);
+
+        String nameHint =
+                (friendName != null
+                        && !friendName.isEmpty()
+                        && !friendName.equals(chatId))
+                        ? "\n\n【当前聊天对象是：" + friendName
+                        + "。分析中可以自然使用昵称，但翻译结果不得擅自加入昵称。】"
+                        : "";
+
+        String fullProtocol =
+                sysPrompt
+                + profileBlock(chatId)
+                + nameHint
+                + spanishDirective
+                + formatProtocol
+                + targetRule
+                + contextRule;
+
+        messages.put(createMessageObj("system", fullProtocol));
+
+        StringBuilder scriptBuilder = new StringBuilder();
+
+        scriptBuilder.append("【当前 HelloTalk 真实对话】\n");
+
+        if (liveContext != null && !liveContext.trim().isEmpty()) {
+            scriptBuilder.append(liveContext.trim());
+        } else {
+            scriptBuilder.append("（当前没有可用实时上下文）");
+        }
+
+        scriptBuilder.append("\n\n<translate>\n")
+                .append(text)
+                .append("\n</translate>");
+
+        messages.put(createMessageObj("user", scriptBuilder.toString()));
+
+        try {
+            return callChatMessages(messages, getMaxTokens());
+
+        } catch (IOException e) {
+
+            if (e.getMessage() != null
+                    && e.getMessage().contains("400")) {
+
+                return fallbackToPureTextRequest(messages);
+            }
+
+            throw e;
+        }
+
+    } catch (JSONException e) {
+
+        throw new IOException("构建新版实时翻译 Messages 失败");
+    }
+}
     public static String translateForPicker(String text, String langCode, String chatId) throws IOException {
         return translateWithHistory(text, langCode, chatId, false);
     }

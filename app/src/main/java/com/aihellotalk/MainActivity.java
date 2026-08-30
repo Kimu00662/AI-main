@@ -265,11 +265,17 @@ public class MainActivity extends Activity {
         setContentView(drawerLayout);
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        checkMemoryClaim();
-    }
+@Override
+protected void onResume() {
+    super.onResume();
+
+    // 刷新记忆状态
+    checkMemoryClaim();
+
+    // HelloTalk 新打开聊天后可能刚刚写入 htai_friends.json，
+    // 每次回到 HT 遥控页面都重新读取一次好友列表。
+    refreshDrawerList();
+}
 
     private void checkMemoryClaim() {
         new Thread(() -> {

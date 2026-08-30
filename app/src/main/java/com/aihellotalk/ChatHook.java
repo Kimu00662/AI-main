@@ -1658,7 +1658,7 @@ if ("chat_user_profile".equals(mid)) {
         + " skip=" + shouldSkipHistory(text)
         + " mine=" + isMine
         + " text=[" + text + "]");
-                                             if (isNew && !shouldSkipHistory(text)) {
+                                                                                         if (isNew && !shouldSkipHistory(text)) {
     String capturedQuote = null;
     if (isMine && pendingSendChatId != null && pendingSendChatId.equals(chatId)) {
         capturedQuote = pendingSendQuote;
@@ -1668,6 +1668,7 @@ if ("chat_user_profile".equals(mid)) {
     if (capturedQuote == null) {
         capturedQuote = extractQuoteForHistory(msg, chatId, isMine);
     }
+    log("历史写入引用: chatId=" + chatId + " mid=" + mid + " quote=" + capturedQuote);
     if (isMine) {
         AITranslator.appendHistory(chatId, mid, "assistant", text, st, capturedQuote, false);
     } else {
@@ -2111,6 +2112,7 @@ String quote = selectedReplyText;
 
 // 修复：m4t.f() 在没有真实回复时，可能返回输入框里的草稿。
 // 如果“回复文本”就是输入框当前内容，说明没有真实引用回复。
+
 String inputNow = edit.getText().toString().trim();
 if (hasSelectedReply && quote != null
         && quote.trim().equals(inputNow)) {
@@ -2124,6 +2126,7 @@ if (hasSelectedReply && quote != null
 if (hasSelectedReply && selectedReplyText != null && !selectedReplyText.trim().isEmpty()) {
     pendingSendQuote = selectedReplyText.trim();
     pendingSendChatId = cs;
+    log("点译暂存引用: quote=" + pendingSendQuote + " chatId=" + pendingSendChatId);
 } else {
     pendingSendQuote = null;
     pendingSendChatId = null;

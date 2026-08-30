@@ -1415,50 +1415,7 @@ new Thread(() -> {
 
         if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
 
-        // ===== 新版 HelloTalk：打开聊天页面立即注册到 HT 遥控好友列表 =====
-//
-// H3() 已经取得当前 chatId，Q3()->getChatUser() 已经取得真实好友资料。
-// 这里直接创建/刷新 htai_friends.json。
-// 旧版 startChat 路径完全不受影响。
-if (currentChatId != null
-        && !currentChatId.trim().isEmpty()
-        && !"0".equals(currentChatId)
-        && !"null".equalsIgnoreCase(currentChatId)) {
-
-    String friendName = latestPartnerName != null
-            ? latestPartnerName.trim()
-            : "";
-
-    if (!friendName.isEmpty()
-            && !friendName.equals(currentChatId)) {
-
-        // 如果这个好友以前已经注册过，保留其原有语言设置；
-        // 如果是第一次出现，getFriendLang() 默认返回 en，
-        // 后续正常翻译时原有逻辑仍会自动更新语言。
-        String knownLang = AITranslator.getFriendLang(currentChatId);
-
-        AITranslator.registerFriend(
-                currentChatId,
-                friendName,
-                knownLang,
-                latestNationality
-        );
-
-        log("新版好友已注册到HT遥控: chatId="
-                + currentChatId
-                + " name="
-                + friendName);
-
-    } else {
-
-        // 昵称暂时没取到时，不创建一个纯数字假好友。
-        // 如果这个好友本来已经存在，只更新国籍即可。
-        AITranslator.updateFriendNationality(
-                currentChatId,
-                latestNationality
-        );
-    }
-}
+        
         log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
     } catch (Throwable ignored) {}
 }
@@ -1580,8 +1537,18 @@ final String chatId = eid;
                 Object sno = invokeQuiet(mGetSenderName, msg);
                 if (sno != null) sn = String.valueOf(sno);
                 if (sn != null && !sn.isEmpty() && !isMine) {
-                    AITranslator.registerFriend(chatId, sn, AITranslator.getFriendLang(chatId), latestNationality);
-                }
+
+    // 旧版保持原样；新版收到对方消息不创建遥控好友
+    if (!newReplyControllerDetected) {
+        AITranslator.registerFriend(
+                chatId,
+                sn,
+                AITranslator.getFriendLang(chatId),
+                latestNationality
+        );
+    }
+}
+                
 
                 Method gtm = ensureBeanGetText(bean);
                 Object to = invokeQuiet(gtm, bean);
@@ -1598,12 +1565,62 @@ final String chatId = eid;
                     else return;
                 }
 
-                if (isMine && pendingSelectedForeign != null && pendingSelectedForeign.equals(text)) {
-                    pendingSelectedForeign = null;
-                    lastPickerResult = null;
-                    uiHandler.post(() -> { if (versionButton != null) versionButton.setVisibility(View.GONE); });
-                }
+                if (isMine
+        && pendingSelectedForeign != null
+        && pendingSelectedForeign.equals(text)) {
 
+    // ===== 新版：只有翻译结果真正发送出去以后才创建遥控好友 =====
+    if (newReplyControllerDetected
+            && chatId != null
+            && !chatId.trim().isEmpty()
+            && !"0".equals(chatId)
+            && !"null".equalsIgnoreCase(chatId)) {
+
+        String friendName = currentPartnerName;
+
+        if (friendName == null || friendName.trim().isEmpty()) {
+            friendName = latestPartnerName;
+        }
+
+        if (friendName == null) {
+            friendName = "";
+        }
+
+        String manualLang = chatLangOverride.get(chatId);
+
+        String targetLang =
+                (manualLang != null && !manualLang.isEmpty())
+                        ? manualLang
+                        : determineSmartTargetLang(
+                                latestNationality,
+                                latestNativeLang,
+                                chatId
+                        );
+
+        AITranslator.registerFriend(
+                chatId,
+                friendName,
+                targetLang,
+                latestNationality
+        );
+
+        log("新版真实发送翻译消息，创建HT遥控好友: chatId="
+                + chatId
+                + " name="
+                + friendName
+                + " lang="
+                + targetLang);
+    }
+
+    pendingSelectedForeign = null;
+    lastPickerResult = null;
+
+    uiHandler.post(() -> {
+        if (versionButton != null) {
+            versionButton.setVisibility(View.GONE);
+        }
+    });
+}
                 Object mio = invokeQuiet(mGetMsgId, msg);
                 String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
 
@@ -2214,7 +2231,9 @@ if (newReplyControllerDetected) {
                     } else {
                         String manualLang = chatLangOverride.get(cs);
                         String tl = (manualLang != null && !manualLang.isEmpty()) ? manualLang : determineSmartTargetLang(nats, nls, cs);
-                        if (cts == 1) AITranslator.registerFriend(cs, pns, tl, nats);
+                        if (!newReplyControllerDetected && cts == 1) {
+    AITranslator.registerFriend(cs, pns, tl, nats);
+}
 
                         String lr = chatRequestMap.get(cs);
                         boolean retry = ftt.equals(lr);

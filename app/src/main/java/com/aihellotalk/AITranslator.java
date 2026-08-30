@@ -2720,12 +2720,45 @@ private static String fixUrl(String url) {
     }
 
     private static void writeHistoryLocked(String chatId, JSONArray history) {
-        try {
-            File f = historyFile(chatId); f.getParentFile().mkdirs();
-            BufferedWriter w = new BufferedWriter(new FileWriter(f));
-            w.write(history.toString()); w.close();
-        } catch (Exception ignored) {}
+    try {
+        File f = historyFile(chatId);
+
+        if (f.getParentFile() != null) {
+            f.getParentFile().mkdirs();
+        }
+
+        BufferedWriter w = new BufferedWriter(new FileWriter(f));
+        w.write(history.toString());
+        w.flush();
+        w.close();
+
+        Log.i(
+                TAG,
+                "HISTORY_WRITE_OK chatId="
+                        + chatId
+                        + " path="
+                        + f.getAbsolutePath()
+                        + " exists="
+                        + f.exists()
+                        + " size="
+                        + f.length()
+                        + " count="
+                        + history.length()
+        );
+
+    } catch (Exception e) {
+
+        Log.e(
+                TAG,
+                "HISTORY_WRITE_FAIL chatId="
+                        + chatId
+                        + " error="
+                        + e.getClass().getName()
+                        + ": "
+                        + e.getMessage()
+        );
     }
+}
 
     public static void appendHistory(String chatId, String msgId, String role, String content) {
         appendHistory(chatId, msgId, role, content, System.currentTimeMillis(), null, false);

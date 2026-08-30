@@ -488,6 +488,25 @@ private static boolean refreshSelectedReplyFromNewController() {
         // 这部分旧版也在使用，所以不要改 applySelectedReply() 本身。
         applySelectedReply(msg);
 
+// ===== 新版专用：过滤 m4t.f() 的伪回复对象 =====
+//
+// 新版在“没有真正选择回复框”时，某些情况下 m4t.f()
+// 仍可能返回一个 HTIMMessage 占位对象。
+// 如果解析出的所谓回复文字恰好就是当前 ChatDetailFragment.H3()
+// 得到的 chatId，那么它绝不是真正聊天正文。
+//
+// 只在新版 m4t 路径处理，不影响旧版 kr0.d。
+if (selectedReplyValid
+        && selectedReplyText != null
+        && currentChatId != null
+        && selectedReplyText.trim().equals(currentChatId.trim())) {
+
+    log("新版伪回复对象已忽略: text=chatId=" + currentChatId);
+
+    resetSelectedReply();
+
+    return true;
+}
         // ===== 新版专用修复 =====
         //
         // 新版回复控制器 m4t.f() 本身已经代表“当前聊天输入框正在回复的消息”。
@@ -613,6 +632,112 @@ private static boolean refreshSelectedReplyFromNewController() {
         currentQuotedImagePath = null;
         currentQuotedImageMissing = false;
     }
+// ===== 新版 HelloTalk：直接从新版 HTIMMessage 读取文字 =====
+// 只给 buildNewLiveChatContext() 使用。
+// 不调用旧版通用消息解析器，避免影响旧版 HelloTalk。
+private static String extractNewLiveMessageText(Object msg) {
+    if (msg == null) return null;
+
+    try {
+        // 新版 dex 已确认：
+        // HTIMMessage.M() -> String，返回消息类型
+        Object typeObj = XposedHelpers.callMethod(msg, "M");
+        String msgType = typeObj != null
+                ? String.valueOf(typeObj)
+                : "";
+
+        if ("text".equals(msgType)) {
+
+            Class<?> textBeanClass = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.text.IMTextBean",
+                    hostClassLoader
+            );
+
+            if (textBeanClass == null) {
+                return null;
+            }
+
+            // 新版 dex：
+            // HTIMMessage.B(Class) -> HTIMJsonBean
+            Object bean = XposedHelpers.callMethod(
+                    msg,
+                    "B",
+                    textBeanClass
+            );
+
+            if (bean == null) {
+                return null;
+            }
+
+            // 先读未混淆字段。
+            Object text = readFieldQuiet(bean, "text");
+
+            if (text == null) {
+                text = readFieldQuiet(bean, "reportText");
+            }
+
+            // 新版 IMTextBean 中存在 u() -> String。
+            // 字段读取失败时用新版 getter 兜底。
+            if (text == null) {
+                try {
+                    text = XposedHelpers.callMethod(bean, "u");
+                } catch (Throwable ignored) {}
+            }
+
+            if (text == null) {
+                return null;
+            }
+
+            String result = String.valueOf(text).trim();
+
+            return result.isEmpty() ? null : result;
+        }
+
+        if ("translate".equals(msgType)) {
+
+            Class<?> transBeanClass = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.translate.IMTranslateBean",
+                    hostClassLoader
+            );
+
+            if (transBeanClass == null) {
+                return null;
+            }
+
+            Object bean = XposedHelpers.callMethod(
+                    msg,
+                    "B",
+                    transBeanClass
+            );
+
+            if (bean == null) {
+                return null;
+            }
+
+            // classes9.dex 已确认 IMTranslateBean.srcText 字段存在。
+            Object text = readFieldQuiet(bean, "srcText");
+
+            // classes9.dex 已确认：
+            // IMTranslateBean.u() -> srcText
+            if (text == null) {
+                try {
+                    text = XposedHelpers.callMethod(bean, "u");
+                } catch (Throwable ignored) {}
+            }
+
+            if (text == null) {
+                return null;
+            }
+
+            String result = String.valueOf(text).trim();
+
+            return result.isEmpty() ? null : result;
+        }
+
+    } catch (Throwable ignored) {}
+
+    return null;
+}
 // ===== 新版 HelloTalk：直接读取当前聊天页面真实消息 =====
 //
 // 新版不再依赖 hookRecv / recordOutgoing 写入的历史文件。
@@ -642,22 +767,33 @@ private static String buildNewLiveChatContext(int maxCount) {
             log("新版实时上下文: L3() adapter=null");
             return null;
         }
+// ===== 新版 HelloTalk：读取 UI 真正使用的原始消息列表 =====
+//
+// 重新逆向确认：
+// of4.k() 会额外筛选 v84，所以可能返回空列表。
+// HelloTalk 自己显示聊天气泡时使用的是：
+// of4.j() -> b84.a -> 原始消息 List。
+Object helper = XposedHelpers.callMethod(adapter, "j");
 
-        // 新版 MessageAdapter.k() -> ArrayList<v84>
-        Object listObj = XposedHelpers.callMethod(adapter, "k");
+if (helper == null) {
+    log("新版实时上下文: adapter.j() helper=null");
+    return null;
+}
 
-        if (!(listObj instanceof java.util.List)) {
-            log("新版实时上下文: adapter.k() 不是 List: "
-                    + (listObj == null ? "null" : listObj.getClass().getName()));
-            return null;
-        }
+Object listObj = readFieldQuiet(helper, "a");
 
-        java.util.List<?> items = (java.util.List<?>) listObj;
+if (!(listObj instanceof java.util.List)) {
+    log("新版实时上下文: helper.a 不是 List: "
+            + (listObj == null ? "null" : listObj.getClass().getName()));
+    return null;
+}
 
-        if (items.isEmpty()) {
-            log("新版实时上下文: 消息列表为空");
-            return null;
-        }
+java.util.List<?> items = (java.util.List<?>) listObj;
+
+if (items.isEmpty()) {
+    log("新版实时上下文: UI原始消息列表为空");
+    return null;
+}
 
         int wanted = maxCount;
         if (wanted < 5) wanted = 5;
@@ -692,18 +828,22 @@ private static String buildNewLiveChatContext(int maxCount) {
             if (msg == null) continue;
 
             try {
-                ensureMsgMethods(msg);
+// ===== 新版专用 =====
+// classes9.dex 已确认 HTIMMessage.Y() -> boolean
+// 这里直接读取，不使用旧版共用的 mIsSender 缓存。
+Object mineObj = null;
 
-                Object mineObj = invokeQuiet(mIsSender, msg);
-                boolean mine = mineObj instanceof Boolean
-                        && ((Boolean) mineObj);
+try {
+    mineObj = XposedHelpers.callMethod(msg, "Y");
+} catch (Throwable ignored) {}
 
-                Object typeObj = invokeQuiet(mGetMsgType, msg);
-                String msgType = typeObj != null
-                        ? String.valueOf(typeObj)
-                        : "";
+boolean mine = mineObj instanceof Boolean
+        && ((Boolean) mineObj);
 
-                String content = extractMessageTextByType(msg, msgType);
+// ===== 新版专用 =====
+// 直接按照新版 HTIMMessage / IMTextBean / IMTranslateBean
+// 的实际 dex 方法读取文字。
+String content = extractNewLiveMessageText(msg);
 
                 // 目前实时上下文优先读取真正文字消息。
                 // 图片/语音以后再单独完善，先别影响已有功能。

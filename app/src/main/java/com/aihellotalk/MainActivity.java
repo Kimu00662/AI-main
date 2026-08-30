@@ -279,10 +279,10 @@ protected void onResume() {
 
     private void checkMemoryClaim() {
         new Thread(() -> {
-            String out = runRoot(
-                    "cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null; echo '<<<HTAI_SEP>>>';"
-                    + " ls /data/data/com.hellotalk/files/htai_* 2>/dev/null; echo '<<<HTAI_SEP>>>';"
-                    + " ls /data/local/tmp/htai_store/htai_* 2>/dev/null");
+String out = runRoot(
+        "cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null; echo '<<<HTAI_SEP>>>';"
+        + " rm -rf /data/local/tmp/htai_sandbox_check; mkdir -p /data/local/tmp/htai_sandbox_check; cp /data/data/com.hellotalk/files/htai_* /data/local/tmp/htai_sandbox_check/ 2>/dev/null; ls /data/local/tmp/htai_sandbox_check/ 2>/dev/null; echo '<<<HTAI_SEP>>>';"
+        + " ls /data/local/tmp/htai_store/htai_* 2>/dev/null");
 
             if (out == null) {
                 runOnUiThread(() -> updateMemStatus("noroot"));
@@ -511,7 +511,7 @@ protected void onResume() {
     private void showMemoryFiles() {
         new Thread(() -> {
             String marker = runRoot("cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null");
-            String sandbox = runRoot("ls -la /data/data/com.hellotalk/files/ 2>/dev/null | grep htai");
+            String sandbox = runRoot("cp /data/data/com.hellotalk/files/htai_* /data/local/tmp/ 2>/dev/null; ls -la /data/local/tmp/ 2>/dev/null | grep htai");
             String store = runRoot("ls -la /data/local/tmp/htai_store/ 2>/dev/null | grep htai");
 
             StringBuilder sb = new StringBuilder();
@@ -730,7 +730,7 @@ protected void onResume() {
                 runRoot("rm /data/local/tmp/htai_store/htai_hist_" + s.id + ".json /data/local/tmp/htai_store/htai_profile_" + s.id + ".txt 2>/dev/null");
 
                 String friendsPath = "/data/data/com.hellotalk/files/htai_friends.json";
-                String jsonStr = runRoot("cat " + friendsPath);
+                String jsonStr = runRoot("cp " + friendsPath + " /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
                 if (jsonStr != null && !jsonStr.trim().isEmpty()) {
                     JSONObject friends = new JSONObject(jsonStr);
                     if (friends.has(s.id)) {
@@ -767,7 +767,7 @@ protected void onResume() {
         new Thread(() -> {
             final List<ChatSession> htFriends = new ArrayList<>();
             try {
-                String jsonStr = runRoot("cat /data/data/com.hellotalk/files/htai_friends.json");
+                String jsonStr = runRoot("cp /data/data/com.hellotalk/files/htai_friends.json /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
                 if (jsonStr != null && !jsonStr.trim().isEmpty()) {
                     JSONObject friends = new JSONObject(jsonStr);
                     JSONArray names = friends.names();
@@ -832,7 +832,7 @@ protected void onResume() {
     private void loadHTMessagesRoot(String chatId) {
         messageContainer.removeAllViews();
         new Thread(() -> {
-            final String jsonStr = runRoot("cat /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json");
+            final String jsonStr = runRoot("cp /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json /data/local/tmp/htai_hist_copy.json 2>/dev/null; cat /data/local/tmp/htai_hist_copy.json");
             runOnUiThread(() -> {
                 try {
                     if (jsonStr != null && !jsonStr.trim().isEmpty()) {

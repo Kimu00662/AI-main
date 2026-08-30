@@ -798,8 +798,11 @@ String out = runRoot(
             drawerContent.addView(hint);
         } else {
             for (ChatSession s : htFriends) {
-                TextView tv = new TextView(this);
-                tv.setText("👤 " + s.name);
+    // 过滤旧版本把 chatId 当名字存进去的纯数字条目
+    if (s.name == null || s.name.trim().isEmpty() || s.name.equals(s.id)) continue;
+
+    TextView tv = new TextView(this);
+    tv.setText("👤 " + s.name);
                 tv.setTextSize(16f);
                 tv.setPadding(20, 26, 20, 26);
                 tv.setTextColor(Color.parseColor("#333333"));
@@ -842,13 +845,20 @@ String out = runRoot(
                             String role = obj.optString("role", "");
                             String content = obj.optString("content", "");
 
-                            if ("user".equals(role)) {
-                                displayMessage("ai", "对方: " + content);
-                            } else if ("assistant".equals(role)) {
-                                displayMessage("user", content);
-                            } else {
-                                displayMessage("system", content);
-                            }
+                           // 过滤旧版本的脏数据：纯数字聊天ID、bean 的 toString 等
+if (content == null || content.trim().isEmpty()) {
+    // 跳过空内容
+} else if (content.trim().matches("\\d{6,}")) {
+    // 跳过纯数字聊天ID
+} else if (content.trim().startsWith("{") && content.trim().endsWith("}")) {
+    // 跳过 {name = xxx} 这类脏数据
+} else if ("user".equals(role)) {
+    displayMessage("ai", "对方: " + content);
+} else if ("assistant".equals(role)) {
+    displayMessage("user", content);
+} else {
+    displayMessage("system", content);
+}
                         }
                         messageScrollView.postDelayed(() -> messageScrollView.fullScroll(View.FOCUS_DOWN), 100);
                     } else {

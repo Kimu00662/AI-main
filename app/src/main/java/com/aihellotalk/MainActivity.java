@@ -706,7 +706,7 @@ String out = runRoot(
 
     private String runRoot(String cmd) {
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
+            Process p = Runtime.getRuntime().exec(new String[]{"su", "-M", "-c", cmd});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             StringBuilder sb = new StringBuilder();
             String l;

@@ -1629,6 +1629,8 @@ final String chatId = eid;
                 + " lang="
                 + targetLang);
     }
+    
+    pendingFriendRegister = false;
 
     pendingSelectedForeign = null;
     lastPickerResult = null;

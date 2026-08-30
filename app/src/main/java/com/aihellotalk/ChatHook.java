@@ -1578,15 +1578,9 @@ final String chatId = eid;
                     else return;
                 }
 
-if (pendingSelectedForeign != null) {
-    log("新版发送判定: mine=" + isMine
-            + " type=" + mt
-            + " text=[" + text + "]"
-            + " pending=[" + pendingSelectedForeign + "]");
-}
                 if (isMine
-        && pendingSelectedForeign != null
-        && pendingSelectedForeign.equals(text)) {
+        && text != null
+        && AITranslator.mySentDrafts.get(text) != null) {
 
     // ===== 新版：只有翻译结果真正发送出去以后才创建遥控好友 =====
     if (newReplyControllerDetected

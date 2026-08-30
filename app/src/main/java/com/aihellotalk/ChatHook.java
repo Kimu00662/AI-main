@@ -1658,27 +1658,12 @@ if ("chat_user_profile".equals(mid)) {
         + " skip=" + shouldSkipHistory(text)
         + " mine=" + isMine
         + " text=[" + text + "]");
-              if (isNew && !shouldSkipHistory(text)) {
+                              if (isNew && !shouldSkipHistory(text)) {
+    String capturedQuote = extractQuoteForHistory(msg, chatId, isMine);
     if (isMine) {
-        AITranslator.appendHistory(
-                chatId,
-                mid,
-                "assistant",
-                text,
-                st,
-                null,
-                false
-        );
+        AITranslator.appendHistory(chatId, mid, "assistant", text, st, capturedQuote, false);
     } else {
-        AITranslator.appendHistory(
-                chatId,
-                mid,
-                "user",
-                text,
-                st,
-                null,
-                false
-        );
+        AITranslator.appendHistory(chatId, mid, "user", text, st, capturedQuote, false);
     }
 }
 

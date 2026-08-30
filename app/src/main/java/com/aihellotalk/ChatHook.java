@@ -796,8 +796,19 @@ if (items.isEmpty()) {
 }
 
         int wanted = maxCount;
-        if (wanted < 5) wanted = 5;
-        if (wanted > 80) wanted = 80;
+
+if (wanted < 0) wanted = 0;
+if (wanted > 80) wanted = 80;
+
+// 用户把上下文设置为 0 时，明确告诉后面的新版 AI：
+// 本次没有聊天历史。
+// 绝不能因此回退到模块旧 history。
+if (wanted == 0) {
+    return "【程序直接读取的当前 HelloTalk 实时对话】\n"
+            + "（用户已将上下文条数设置为0，本次没有提供任何历史聊天消息。）\n";
+}
+        
+       
 
         int start = Math.max(0, items.size() - wanted);
 
@@ -2131,7 +2142,27 @@ if (!pbm && newReplyControllerDetected) {
             new Thread(() -> {
                 try {
                     if (pbm) {
-                        String answer = AITranslator.askAiQuestion(ftt, cs);
+                        String answer;
+
+// ===== 新版 HelloTalk =====
+// 新版括号问答绝不再读取模块旧 history。
+// 哪怕当前实时上下文只有 0 条、1 条、2 条消息，
+// 没有就回答没有，绝不能拿 chatId 冒充聊天内容。
+if (newReplyControllerDetected) {
+
+    answer = AITranslator.askAiQuestionLive(
+            ftt,
+            cs
+    );
+
+} else {
+
+    // 旧版 HelloTalk 保持原样。
+    answer = AITranslator.askAiQuestion(
+            ftt,
+            cs
+    );
+}
                         isTranslatingAPI = false;
                         edit.post(() -> {
                             btn.setEnabled(true);

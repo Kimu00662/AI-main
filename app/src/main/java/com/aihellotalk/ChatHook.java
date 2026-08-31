@@ -2194,6 +2194,7 @@ final boolean qms = currentQuotedImageMissing;
             }
 
             String ttt = cleanText;
+String pbmLiveContext = null;
 // ===== 新版：括号问答直接使用 HelloTalk 当前真实消息列表 =====
 //
 // 只处理：

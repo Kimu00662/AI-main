@@ -1163,11 +1163,22 @@ private static void hookTextViewRender(ClassLoader cl) {
         protected void beforeHookedMethod(MethodHookParam param) {
             try {
                 if (param.thisObject instanceof EditText) return;
-                if (!htTextViewClass.isInstance(param.thisObject)) return;
+if (!htTextViewClass.isInstance(param.thisObject)) return;
 
-                CharSequence cs = (CharSequence) param.args[0];
-                if (cs == null) return;
+// 新版：只在聊天页可见时翻译，避免把动态/帖子等页面也翻译
+if (newReplyControllerDetected) {
+    boolean inChatPage = false;
+    Object frag = currentChatDetailFragment;
+    if (frag != null) {
+        try {
+            Object v = XposedHelpers.callMethod(frag, "isVisible");
+            if (v instanceof Boolean) inChatPage = (Boolean) v;
+        } catch (Throwable ignored) {}
+    }
+    if (!inChatPage) return;
+}
 
+CharSequence cs = (CharSequence) param.args[0];
                 String s = cs.toString();
                 if (s.isEmpty() || s.length() > 5000) return;
                 if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;

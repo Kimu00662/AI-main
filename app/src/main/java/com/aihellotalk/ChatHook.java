@@ -2204,29 +2204,16 @@ final boolean qms = currentQuotedImageMissing;
 // 已经正常工作的：普通翻译 / 回复框翻译 / 旧版 HelloTalk
 // 都不会进入这里。
 if (pbm
-        && newReplyControllerDetected
-        && !hasSelectedReply) {
+        && newReplyControllerDetected) {
 
-    String liveContext = buildNewLiveChatContext(
+    pbmLiveContext = buildNewLiveChatContext(
             AITranslator.getMaxChatMessagesForHook()
     );
 
-    if (liveContext != null && !liveContext.trim().isEmpty()) {
-
-        ttt =
-                "【新版实时上下文优先规则】\n"
-                + "下面的 HelloTalk 实时对话由程序直接从当前聊天页面读取，"
-                + "真实性高于模块旧历史文件。"
-                + "如果旧历史与这里冲突，请忽略旧历史。"
-                + "纯数字聊天ID不是聊天内容，不得把聊天ID当成任何一方说过的话。\n\n"
-                + liveContext
-                + "\n【我的问题】\n"
-                + cleanText;
-
+    if (pbmLiveContext != null && !pbmLiveContext.trim().isEmpty()) {
         log("新版括号问答已使用实时聊天列表");
-
     } else {
-
+        pbmLiveContext = null;
         log("新版括号问答实时聊天列表读取失败，继续旧方式");
     }
 }
@@ -2247,6 +2234,16 @@ if (pbm
                     }
                 }
             }
+
+// ===== 新版括号问答增强：把实时上下文一起带给 AI =====
+if (pbm && newReplyControllerDetected && pbmLiveContext != null) {
+    ttt = "【新版实时上下文优先规则】\n"
+            + "下面的 HelloTalk 实时对话由程序直接从当前聊天页面读取，"
+            + "真实性高于模块旧历史文件。\n"
+            + "纯数字聊天ID不是聊天内容，不得把聊天ID当成任何一方说过的话。\n\n"
+            + pbmLiveContext
+            + "\n\n" + ttt;
+}
 
 // ===== 新版括号问答增强 =====
 // 如果新版回复框已经明确选中一条消息，就告诉 AI：

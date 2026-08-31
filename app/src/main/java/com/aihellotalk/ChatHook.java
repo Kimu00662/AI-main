@@ -752,6 +752,41 @@ private static String extractNewLiveMessageText(Object msg) {
 
     return null;
 }
+
+    private static String liveReplyPrefix(Object msg) {
+        try {
+            ensureMsgMethods(msg);
+            Object ri = invokeQuiet(mGetReplyInfo, msg);
+            if (ri == null) return null;
+
+            Object rIs = invokeQuiet(mIsSender, ri);
+            boolean replyIsMine = (rIs instanceof Boolean) && ((Boolean) rIs);
+
+            Object rmt = invokeQuiet(mGetMsgType, ri);
+            String rmtS = (rmt != null) ? String.valueOf(rmt) : null;
+
+            if ("text".equals(rmtS) || "translate".equals(rmtS)) {
+                String rq = extractMessageTextByType(ri, rmtS);
+                if (rq != null && !rq.trim().isEmpty()) {
+                    String target = rq.trim();
+                    if (replyIsMine) {
+                        String zh = AITranslator.getChineseByForeign(target);
+                        if (zh == null) zh = AITranslator.getDraftFuzzy(target);
+                        if (zh != null && !zh.trim().isEmpty()) target = zh.trim();
+                    }
+                    return replyIsMine
+                            ? "（引用了你的消息：" + target + "）"
+                            : "（引用了对方自己的消息：" + target + "）";
+                }
+            } else if (rmtS != null && !rmtS.isEmpty()) {
+                return replyIsMine
+                        ? "（引用了你的" + rmtS + "消息）"
+                        : "（引用了对方自己的" + rmtS + "消息）";
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
 // ===== 新版 HelloTalk：直接读取当前聊天页面真实消息 =====
 //
 // 新版不再依赖 hookRecv / recordOutgoing 写入的历史文件。
@@ -889,11 +924,16 @@ String content = extractNewLiveMessageText(msg);
                     continue;
                 }
 
-                sb.append(mine ? "我：" : "对方：")
-                  .append(content)
-                  .append("\n");
+                String quotePrefix = liveReplyPrefix(msg);
+if (quotePrefix == null) quotePrefix = "";
 
-                added++;
+sb.append(mine ? "我" : "对方")
+  .append(quotePrefix)
+  .append("：")
+  .append(content)
+  .append("\n");
+
+added++;
 
             } catch (Throwable one) {
                 // 单条消息解析失败直接跳过，不影响整个按钮。

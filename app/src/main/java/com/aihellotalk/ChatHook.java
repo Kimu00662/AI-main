@@ -2002,14 +2002,26 @@ private static void setBeanField(Object bean, String text) {
             lp.leftMargin = 12;
             lp.topMargin = 8;
             hint.setLayoutParams(lp);
-            layout.addView(hint);
-            apiSwitchHintView = hint;
-            hint.postDelayed(() -> {
-                if (hint.getParent() != null) {
-                    ((ViewGroup) hint.getParent()).removeView(hint);
+            Runnable addViewRunnable = () -> {
+                try {
+                    layout.addView(hint);
+                    apiSwitchHintView = hint;
+                    XposedBridge.log("HT_AI 黑框提示已显示: API=" + index + " model=" + model);
+                    hint.postDelayed(() -> {
+                        if (hint.getParent() != null) {
+                            ((ViewGroup) hint.getParent()).removeView(hint);
+                        }
+                        if (apiSwitchHintView == hint) apiSwitchHintView = null;
+                    }, 5000);
+                } catch (Throwable t) {
+                    XposedBridge.log("HT_AI 黑框提示addView失败: " + t.getMessage());
                 }
-                if (apiSwitchHintView == hint) apiSwitchHintView = null;
-            }, 3000);
+            };
+            if (android.os.Looper.getMainLooper().isCurrentThread()) {
+                addViewRunnable.run();
+            } else {
+                layout.post(addViewRunnable);
+            }
         } catch (Throwable ignored) {}
     }
 

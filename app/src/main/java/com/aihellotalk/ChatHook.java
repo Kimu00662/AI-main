@@ -126,6 +126,9 @@ private static volatile String selectedReplySenderName = null;
 private static volatile String selectedReplyChatId = null;
 private static volatile ClassLoader hostClassLoader = null;
 
+// 重试意图：null=首次, "regenerate"=换一批(不满意结果), "fixFormat"=格式修复
+private static volatile String pendingRetryMode = null;
+
 // ===== 新版 HelloTalk：真正的回复控制器 =====
 // m4t = com.hellotalk.talk.detail.controller.TalkDetailReplyController
 private static volatile Object newReplyController = null;
@@ -2475,6 +2478,9 @@ if (!pbm && newReplyControllerDetected) {
             new Thread(() -> {
                 AITranslator.setCallSource("picker");
                 AITranslator.clearEmergencyStop();
+                String rm = pendingRetryMode;
+                pendingRetryMode = null;
+                if (rm != null) AITranslator.setRetryMode(rm);
                 AITranslator.setApiSwitchListener((index, model, url) -> {
                     if (layout == null) return;
                     showApiSwitchHint(layout, index, model, url);
@@ -2588,6 +2594,7 @@ result = AITranslator.translateForPicker(
                 } finally {
                     AITranslator.clearCallSource();
                     AITranslator.clearEmergencyStop();
+                    AITranslator.clearRetryMode();
                     AITranslator.setApiSwitchListener(null);
                 }
             }).start();
@@ -2744,7 +2751,10 @@ result = AITranslator.translateForPicker(
             android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                     .setTitle(refused ? "AI 拒绝或触发安全策略" : "AI 未按格式返回")
                     .setView(sv)
-                    .setPositiveButton("重试", (d, w) -> edit.post(() -> btn.performClick()))
+                    .setPositiveButton("⚠️ 重试", (d, w) -> {
+                        pendingRetryMode = "fixFormat";
+                        edit.post(() -> btn.performClick());
+                    })
                     .setNeutralButton("复制原文", (d, w) -> {
                         try {
                             ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE))
@@ -2825,7 +2835,10 @@ result = AITranslator.translateForPicker(
                 .setTitle(title)
                 .setView(root)
                 .setNegativeButton("取消", (d, w) -> {})
-                .setPositiveButton("🔄 换一批", (d, w) -> edit.post(() -> btn.performClick()))
+                .setPositiveButton("🔄 换一批", (d, w) -> {
+                    pendingRetryMode = "regenerate";
+                    edit.post(() -> btn.performClick());
+                })
                 .create();
 
         for (int idx = 0; idx < items.size(); idx++) {

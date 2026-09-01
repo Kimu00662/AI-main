@@ -256,7 +256,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 2:")); etUrl2 = edit(prefs.getString("api_url_2", "")); apiContentLayout.addView(etUrl2);
         apiContentLayout.addView(lab("模型 2:")); etModel2 = edit(prefs.getString("model_2", "")); apiContentLayout.addView(etModel2);
         LinearLayout rowBtn2 = new LinearLayout(this); rowBtn2.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch2 = btn("获取模型"); btnFetch2.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch2.setOnClickListener(v -> fetchModelsForApi(etKey2.getText().toString().trim(), etUrl2.getText().toString().trim(), etModel2)); rowBtn2.addView(btnFetch2);
+        Button btnFetch2 = btn("获取模型"); btnFetch2.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch2.setOnClickListener(v -> fetchModelsForApi(etKey2.getText().toString().trim(), etUrl2.getText().toString().trim(), "_2", etModel2)); rowBtn2.addView(btnFetch2);
         Button btnTestApi2 = btn("测试通道"); btnTestApi2.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi2.setOnClickListener(v -> testSingleApi(etKey2.getText().toString().trim(), etUrl2.getText().toString().trim(), etModel2.getText().toString().trim())); rowBtn2.addView(btnTestApi2);
         apiContentLayout.addView(rowBtn2);
         apiContentLayout.addView(lab("调用权重 2:")); etWeight2 = edit(prefs.getString("api_weight_2", "3")); apiContentLayout.addView(etWeight2);
@@ -276,7 +276,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 3:")); etUrl3 = edit(prefs.getString("api_url_3", "")); apiContentLayout.addView(etUrl3);
         apiContentLayout.addView(lab("模型 3:")); etModel3 = edit(prefs.getString("model_3", "")); apiContentLayout.addView(etModel3);
         LinearLayout rowBtn3 = new LinearLayout(this); rowBtn3.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch3 = btn("获取模型"); btnFetch3.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch3.setOnClickListener(v -> fetchModelsForApi(etKey3.getText().toString().trim(), etUrl3.getText().toString().trim(), etModel3)); rowBtn3.addView(btnFetch3);
+        Button btnFetch3 = btn("获取模型"); btnFetch3.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch3.setOnClickListener(v -> fetchModelsForApi(etKey3.getText().toString().trim(), etUrl3.getText().toString().trim(), "_3", etModel3)); rowBtn3.addView(btnFetch3);
         Button btnTestApi3 = btn("测试通道"); btnTestApi3.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi3.setOnClickListener(v -> testSingleApi(etKey3.getText().toString().trim(), etUrl3.getText().toString().trim(), etModel3.getText().toString().trim())); rowBtn3.addView(btnTestApi3);
         apiContentLayout.addView(rowBtn3);
         apiContentLayout.addView(lab("调用权重 3:")); etWeight3 = edit(prefs.getString("api_weight_3", "3")); apiContentLayout.addView(etWeight3);
@@ -296,7 +296,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 4:")); etUrl4 = edit(prefs.getString("api_url_4", "")); apiContentLayout.addView(etUrl4);
         apiContentLayout.addView(lab("模型 4:")); etModel4 = edit(prefs.getString("model_4", "")); apiContentLayout.addView(etModel4);
         LinearLayout rowBtn4 = new LinearLayout(this); rowBtn4.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch4 = btn("获取模型"); btnFetch4.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch4.setOnClickListener(v -> fetchModelsForApi(etKey4.getText().toString().trim(), etUrl4.getText().toString().trim(), etModel4)); rowBtn4.addView(btnFetch4);
+        Button btnFetch4 = btn("获取模型"); btnFetch4.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch4.setOnClickListener(v -> fetchModelsForApi(etKey4.getText().toString().trim(), etUrl4.getText().toString().trim(), "_4", etModel4)); rowBtn4.addView(btnFetch4);
         Button btnTestApi4 = btn("测试通道"); btnTestApi4.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi4.setOnClickListener(v -> testSingleApi(etKey4.getText().toString().trim(), etUrl4.getText().toString().trim(), etModel4.getText().toString().trim())); rowBtn4.addView(btnTestApi4);
         apiContentLayout.addView(rowBtn4);
         apiContentLayout.addView(lab("调用权重 4:")); etWeight4 = edit(prefs.getString("api_weight_4", "3")); apiContentLayout.addView(etWeight4);
@@ -316,7 +316,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 5:")); etUrl5 = edit(prefs.getString("api_url_5", "")); apiContentLayout.addView(etUrl5);
         apiContentLayout.addView(lab("模型 5:")); etModel5 = edit(prefs.getString("model_5", "")); apiContentLayout.addView(etModel5);
         LinearLayout rowBtn5 = new LinearLayout(this); rowBtn5.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch5 = btn("获取模型"); btnFetch5.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch5.setOnClickListener(v -> fetchModelsForApi(etKey5.getText().toString().trim(), etUrl5.getText().toString().trim(), etModel5)); rowBtn5.addView(btnFetch5);
+        Button btnFetch5 = btn("获取模型"); btnFetch5.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch5.setOnClickListener(v -> fetchModelsForApi(etKey5.getText().toString().trim(), etUrl5.getText().toString().trim(), "_5", etModel5)); rowBtn5.addView(btnFetch5);
         Button btnTestApi5 = btn("测试通道"); btnTestApi5.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi5.setOnClickListener(v -> testSingleApi(etKey5.getText().toString().trim(), etUrl5.getText().toString().trim(), etModel5.getText().toString().trim())); rowBtn5.addView(btnTestApi5);
         apiContentLayout.addView(rowBtn5);
         apiContentLayout.addView(lab("调用权重 5:")); etWeight5 = edit(prefs.getString("api_weight_5", "3")); apiContentLayout.addView(etWeight5);
@@ -336,7 +336,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 6:")); etUrl6 = edit(prefs.getString("api_url_6", "")); apiContentLayout.addView(etUrl6);
         apiContentLayout.addView(lab("模型 6:")); etModel6 = edit(prefs.getString("model_6", "")); apiContentLayout.addView(etModel6);
         LinearLayout rowBtn6 = new LinearLayout(this); rowBtn6.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch6 = btn("获取模型"); btnFetch6.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch6.setOnClickListener(v -> fetchModelsForApi(etKey6.getText().toString().trim(), etUrl6.getText().toString().trim(), etModel6)); rowBtn6.addView(btnFetch6);
+        Button btnFetch6 = btn("获取模型"); btnFetch6.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch6.setOnClickListener(v -> fetchModelsForApi(etKey6.getText().toString().trim(), etUrl6.getText().toString().trim(), "_6", etModel6)); rowBtn6.addView(btnFetch6);
         Button btnTestApi6 = btn("测试通道"); btnTestApi6.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi6.setOnClickListener(v -> testSingleApi(etKey6.getText().toString().trim(), etUrl6.getText().toString().trim(), etModel6.getText().toString().trim())); rowBtn6.addView(btnTestApi6);
         apiContentLayout.addView(rowBtn6);
         apiContentLayout.addView(lab("调用权重 6:")); etWeight6 = edit(prefs.getString("api_weight_6", "3")); apiContentLayout.addView(etWeight6);
@@ -356,7 +356,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 7:")); etUrl7 = edit(prefs.getString("api_url_7", "")); apiContentLayout.addView(etUrl7);
         apiContentLayout.addView(lab("模型 7:")); etModel7 = edit(prefs.getString("model_7", "")); apiContentLayout.addView(etModel7);
         LinearLayout rowBtn7 = new LinearLayout(this); rowBtn7.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch7 = btn("获取模型"); btnFetch7.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch7.setOnClickListener(v -> fetchModelsForApi(etKey7.getText().toString().trim(), etUrl7.getText().toString().trim(), etModel7)); rowBtn7.addView(btnFetch7);
+        Button btnFetch7 = btn("获取模型"); btnFetch7.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch7.setOnClickListener(v -> fetchModelsForApi(etKey7.getText().toString().trim(), etUrl7.getText().toString().trim(), "_7", etModel7)); rowBtn7.addView(btnFetch7);
         Button btnTestApi7 = btn("测试通道"); btnTestApi7.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi7.setOnClickListener(v -> testSingleApi(etKey7.getText().toString().trim(), etUrl7.getText().toString().trim(), etModel7.getText().toString().trim())); rowBtn7.addView(btnTestApi7);
         apiContentLayout.addView(rowBtn7);
         apiContentLayout.addView(lab("调用权重 7:")); etWeight7 = edit(prefs.getString("api_weight_7", "3")); apiContentLayout.addView(etWeight7);
@@ -376,7 +376,7 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("API URL 8:")); etUrl8 = edit(prefs.getString("api_url_8", "")); apiContentLayout.addView(etUrl8);
         apiContentLayout.addView(lab("模型 8:")); etModel8 = edit(prefs.getString("model_8", "")); apiContentLayout.addView(etModel8);
         LinearLayout rowBtn8 = new LinearLayout(this); rowBtn8.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFetch8 = btn("获取模型"); btnFetch8.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch8.setOnClickListener(v -> fetchModelsForApi(etKey8.getText().toString().trim(), etUrl8.getText().toString().trim(), etModel8)); rowBtn8.addView(btnFetch8);
+        Button btnFetch8 = btn("获取模型"); btnFetch8.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnFetch8.setOnClickListener(v -> fetchModelsForApi(etKey8.getText().toString().trim(), etUrl8.getText().toString().trim(), "_8", etModel8)); rowBtn8.addView(btnFetch8);
         Button btnTestApi8 = btn("测试通道"); btnTestApi8.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); btnTestApi8.setOnClickListener(v -> testSingleApi(etKey8.getText().toString().trim(), etUrl8.getText().toString().trim(), etModel8.getText().toString().trim())); rowBtn8.addView(btnTestApi8);
         apiContentLayout.addView(rowBtn8);
         apiContentLayout.addView(lab("调用权重 8:")); etWeight8 = edit(prefs.getString("api_weight_8", "3")); apiContentLayout.addView(etWeight8);
@@ -718,7 +718,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }
     }
     
-    private void fetchModelsForApi(String keyStr, String urlStr, EditText targetModelEdit) {
+    private void fetchModelsForApi(String keyStr, String urlStr, String suffix, EditText targetModelEdit) {
         if (keyStr.isEmpty()) {
             toast("请先填写该 API 的 Key");
             return;
@@ -731,7 +731,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                     if (models.isEmpty()) {
                         toast("该 API 获取模型列表失败，请手动输入模型名");
                     } else {
-                        showModelPickerForApi(models, targetModelEdit);
+                        showModelPickerForApi(models, targetModelEdit, suffix);
                     }
                 });
             } catch (Exception e) {
@@ -740,16 +740,42 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }).start();
     }
 
-    private void showModelPickerForApi(List<String> models, EditText targetEdit) {
+    private void showModelPickerForApi(List<String> models, EditText targetEdit, String suffix) {
         String[] items = models.toArray(new String[0]);
-        new AlertDialog.Builder(this)
-            .setTitle("选择模型")
-            .setItems(items, (d, w) -> {
-                targetEdit.setText(items[w]);
-                toast("已选择: " + items[w]);
-            })
-            .setNegativeButton("取消", null)
-            .show();
+        boolean[] checked = new boolean[items.length];
+
+        String savedModels = prefs.getString("model_list" + suffix, "");
+        if (!savedModels.isEmpty()) {
+            String[] savedArr = savedModels.split(",");
+            for (int i = 0; i < items.length; i++) {
+                for (String saved : savedArr) {
+                    if (items[i].equals(saved.trim())) { checked[i] = true; break; }
+                }
+            }
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("选择模型（最多6个）");
+        builder.setMultiChoiceItems(items, checked, (dialog, which, isChecked) -> { checked[which] = isChecked; });
+        builder.setPositiveButton("确定", (dialog, which) -> {
+            List<String> selected = new ArrayList<>();
+            for (int i = 0; i < items.length; i++) if (checked[i]) selected.add(items[i]);
+            if (selected.isEmpty()) { toast("请至少选择一个模型"); return; }
+            if (selected.size() > 6) { toast("最多只能选6个模型"); return; }
+
+            String selectedStr = String.join(",", selected);
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putString("model_list" + suffix, selectedStr);
+            editor.putString("model" + suffix, selected.get(0));
+            editor.apply();
+
+            targetEdit.setText(selected.get(0));
+            StringBuilder sb = new StringBuilder("已选择：");
+            for (String s : selected) sb.append("\n• ").append(s);
+            toast(sb.toString());
+        });
+        builder.setNegativeButton("取消", null);
+        builder.show();
     }
 
     private void fetchModels() {
@@ -868,7 +894,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("选择模型（最多4个）");
+        builder.setTitle("选择模型（最多6个）");
 
         builder.setMultiChoiceItems(items, checked, (dialog, which, isChecked) -> {
             checked[which] = isChecked;
@@ -887,8 +913,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                 return;
             }
 
-            if (selected.size() > 4) {
-                toast("最多只能选择4个模型");
+            if (selected.size() > 6) {
+                toast("最多只能选6个模型");
                 return;
             }
 
@@ -1090,36 +1116,43 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                         + "api_key_2=" + prefs.getString("api_key_2", "") + "\n"
                         + "api_url_2=" + prefs.getString("api_url_2", "") + "\n"
                         + "model_2=" + prefs.getString("model_2", "") + "\n"
+                        + "model_list_2=" + prefs.getString("model_list_2", prefs.getString("model_2", "")) + "\n"
                         + "api_weight_2=" + prefs.getString("api_weight_2", "3") + "\n"
                         + "api_direction_2=" + prefs.getInt("api_direction_2", 0) + "\n"
                         + "api_key_3=" + prefs.getString("api_key_3", "") + "\n"
                         + "api_url_3=" + prefs.getString("api_url_3", "") + "\n"
                         + "model_3=" + prefs.getString("model_3", "") + "\n"
+                        + "model_list_3=" + prefs.getString("model_list_3", prefs.getString("model_3", "")) + "\n"
                         + "api_weight_3=" + prefs.getString("api_weight_3", "3") + "\n"
                         + "api_direction_3=" + prefs.getInt("api_direction_3", 0) + "\n"
                         + "api_key_4=" + prefs.getString("api_key_4", "") + "\n"
                         + "api_url_4=" + prefs.getString("api_url_4", "") + "\n"
                         + "model_4=" + prefs.getString("model_4", "") + "\n"
+                        + "model_list_4=" + prefs.getString("model_list_4", prefs.getString("model_4", "")) + "\n"
                         + "api_weight_4=" + prefs.getString("api_weight_4", "3") + "\n"
                         + "api_direction_4=" + prefs.getInt("api_direction_4", 0) + "\n"
                         + "api_key_5=" + prefs.getString("api_key_5", "") + "\n"
                         + "api_url_5=" + prefs.getString("api_url_5", "") + "\n"
                         + "model_5=" + prefs.getString("model_5", "") + "\n"
+                        + "model_list_5=" + prefs.getString("model_list_5", prefs.getString("model_5", "")) + "\n"
                         + "api_weight_5=" + prefs.getString("api_weight_5", "3") + "\n"
                         + "api_direction_5=" + prefs.getInt("api_direction_5", 0) + "\n"
                         + "api_key_6=" + prefs.getString("api_key_6", "") + "\n"
                         + "api_url_6=" + prefs.getString("api_url_6", "") + "\n"
                         + "model_6=" + prefs.getString("model_6", "") + "\n"
+                        + "model_list_6=" + prefs.getString("model_list_6", prefs.getString("model_6", "")) + "\n"
                         + "api_weight_6=" + prefs.getString("api_weight_6", "3") + "\n"
                         + "api_direction_6=" + prefs.getInt("api_direction_6", 0) + "\n"
                         + "api_key_7=" + prefs.getString("api_key_7", "") + "\n"
                         + "api_url_7=" + prefs.getString("api_url_7", "") + "\n"
                         + "model_7=" + prefs.getString("model_7", "") + "\n"
+                        + "model_list_7=" + prefs.getString("model_list_7", prefs.getString("model_7", "")) + "\n"
                         + "api_weight_7=" + prefs.getString("api_weight_7", "3") + "\n"
                         + "api_direction_7=" + prefs.getInt("api_direction_7", 0) + "\n"
                         + "api_key_8=" + prefs.getString("api_key_8", "") + "\n"
                         + "api_url_8=" + prefs.getString("api_url_8", "") + "\n"
                         + "model_8=" + prefs.getString("model_8", "") + "\n"
+                        + "model_list_8=" + prefs.getString("model_list_8", prefs.getString("model_8", "")) + "\n"
                         + "api_weight_8=" + prefs.getString("api_weight_8", "3") + "\n"
                         + "api_direction_8=" + prefs.getInt("api_direction_8", 0) + "\n"
                         + "reasoning_effort_2=" + prefs.getString("reasoning_effort_2", "default") + "\n"

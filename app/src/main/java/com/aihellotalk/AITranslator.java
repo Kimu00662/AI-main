@@ -102,6 +102,7 @@ public class AITranslator {
     private static final int MAX_TOTAL_BASE64_CHARS = 900_000;
 // ===== ★ 多API智能輪換系統 =====
 private static class ApiEndpoint {
+    final int slot;
     final String key;
     final String url;
     final String model;
@@ -114,7 +115,8 @@ private static class ApiEndpoint {
     volatile long cooldownUntil;
     OkHttpClient client;
 
-    ApiEndpoint(String key, String url, String model, int weight, boolean enabled, int direction, String reasoningEffort) {
+    ApiEndpoint(int slot, String key, String url, String model, int weight, boolean enabled, int direction, String reasoningEffort) {
+        this.slot = slot;
         this.key = key;
         this.url = (url != null && !url.isEmpty()) ? url : "https://api.openai.com/v1/chat/completions";
         this.model = model;
@@ -177,6 +179,10 @@ public static void setApiSwitchListener(ApiSwitchListener l) { apiSwitchListener
 public static void requestEmergencyStop() { emergencyStop = true; }
 public static boolean isEmergencyStop() { return emergencyStop; }
 public static void clearEmergencyStop() { emergencyStop = false; }
+private static final ThreadLocal<String> retryMode = new ThreadLocal<>();
+public static void setRetryMode(String mode) { retryMode.set(mode); }
+public static void clearRetryMode() { retryMode.remove(); }
+public static String getRetryMode() { return retryMode.get(); }
 
     private static double getTemperature() {
         double temp = 0.3;
@@ -561,8 +567,24 @@ private static void loadEndpoints() {
         String key = readConfigValue("api_key" + suffix);
         if (key == null || key.isEmpty()) continue;
         String url = readConfigValue("api_url" + suffix);
-        String model = readConfigValue("model" + suffix);
-        if (model == null || model.isEmpty()) continue;
+
+        // 多模型支持：model_list 逗号分隔，最多 6 个，去重
+        List<String> models = new ArrayList<>();
+        String modelList = readConfigValue("model_list" + suffix);
+        if (modelList != null && !modelList.isEmpty()) {
+            for (String m : modelList.split(",")) {
+                String mm = m.trim();
+                if (mm.isEmpty() || models.contains(mm)) continue;
+                models.add(mm);
+                if (models.size() >= 6) break;
+            }
+        }
+        if (models.isEmpty()) {
+            String model = readConfigValue("model" + suffix);
+            if (model == null || model.isEmpty()) continue;
+            models.add(model.trim());
+        }
+
         int weight = readConfigInt("api_weight" + suffix, 3);
         String enabledStr = readConfigValue("api_enabled" + suffix);
 boolean enabled = enabledStr == null || "true".equalsIgnoreCase(enabledStr);
@@ -573,11 +595,16 @@ if (reasoningEffort == null || reasoningEffort.isEmpty()) {
     reasoningEffort = readConfigValue("reasoning_effort"); // 回退到全局
     if (reasoningEffort == null) reasoningEffort = "default";
 }
-        endpoints.add(new ApiEndpoint(key, url, model, weight, enabled, direction, reasoningEffort));
-        Log.i(TAG, "HT_AI 端點[" + i + "]: model=" + model + " 權重=" + weight + " 方向=" + direction);
+
+        // 权重平分到每个模型（至少1）
+        int perWeight = Math.max(1, weight / models.size());
+        for (String model : models) {
+            endpoints.add(new ApiEndpoint(i, key, url, model, perWeight, enabled, direction, reasoningEffort));
+            Log.i(TAG, "HT_AI 端點[" + i + "]: model=" + model + " 權重=" + perWeight + " 方向=" + direction);
+        }
     }
     if (endpoints.isEmpty() && apiKey != null && !apiKey.isEmpty()) {
-        endpoints.add(new ApiEndpoint(apiKey, apiUrl, model, 3, true, 0, "default"));
+        endpoints.add(new ApiEndpoint(1, apiKey, apiUrl, model, 3, true, 0, "default"));
     }
     Log.i(TAG, "HT_AI 共加載 " + endpoints.size() + " 個API端點");
 }
@@ -2182,7 +2209,15 @@ private static boolean isDirtyHistoryContent(String content) {
                 ? "\n\n【绝密警告：当前聊天对象是 " + friendName + "。在【上半部分分析】中可以自然地使用该昵称（如："+friendName+"）替代“对方”。但是！在生成【下方4个翻译选项】时，严禁把对方名字带入括号的潜台词里！潜台词必须短小精悍，绝不能在潜台词里生硬地提对方名字，也严禁替换原文人名！】" 
                 : "";
 
-            String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + targetRule + contextRule;
+            String retryDirective = "";
+            String rm = getRetryMode();
+            if ("regenerate".equals(rm)) {
+                retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
+            } else if ("fixFormat".equals(rm)) {
+                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分简短分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+            }
+
+            String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + retryDirective + targetRule + contextRule;
 
             messages.put(createMessageObj("system", fullProtocol));
 
@@ -2352,12 +2387,21 @@ public static String translateForPickerLive(
                         + "。分析中可以自然使用昵称，但翻译结果不得擅自加入昵称。】"
                         : "";
 
+        String retryDirective = "";
+        String rm = getRetryMode();
+        if ("regenerate".equals(rm)) {
+            retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
+        } else if ("fixFormat".equals(rm)) {
+            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分简短分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+        }
+
         String fullProtocol =
                 sysPrompt
                 + profileBlock(chatId)
                 + nameHint
                 + spanishDirective
                 + formatProtocol
+                + retryDirective
                 + targetRule
                 + contextRule;
 
@@ -2576,8 +2620,7 @@ if (forceClient != null) {
                 return result;
             }
             if (apiSwitchListener != null) {
-                int idx = endpoints.indexOf(targetEp) + 1;
-                apiSwitchListener.onApiSwitched(idx, targetEp.model, targetEp.url);
+                apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
             }
             return result;
         } catch (IOException e) {

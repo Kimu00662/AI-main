@@ -35,6 +35,13 @@ import de.robv.android.xposed.XposedHelpers;
 
 public class ChatHook {
 
+    public interface ApiSwitchListener {
+        void onApiSwitched(int index, String model, String url);
+    }
+
+    private static volatile ApiSwitchListener apiSwitchListener = null;
+    private static volatile View apiSwitchHintView = null;
+
     private static final String TAG = "HT_AI";
     private static final String DEFAULT_REPLY_LANG = "en";
 
@@ -1347,6 +1354,7 @@ if (d != null && !d.equals(s)) {
                 final TextView tv = (TextView) param.thisObject;
                 if (!translating.add(key)) return;
                 reverseTranslateExecutor.execute(() -> {
+                    AITranslator.setCallSource("receive");
                     try {
                         String t = AITranslator.toChinese(ft, currentChatId);
                         if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
@@ -1357,6 +1365,7 @@ if (d != null && !d.equals(s)) {
                         }
                     } catch (Throwable ignored) {
                     } finally {
+                        AITranslator.clearCallSource();
                         translating.remove(key);
                     }
                 });
@@ -1974,6 +1983,36 @@ private static void setBeanField(Object bean, String text) {
         else btn.setText("译·" + ov.toUpperCase());
     }
 
+    private static void showApiSwitchHint(ViewGroup layout, int index, String model, String url) {
+        if (layout == null) return;
+        try {
+            if (apiSwitchHintView != null && apiSwitchHintView.getParent() != null) {
+                ((ViewGroup) apiSwitchHintView.getParent()).removeView(apiSwitchHintView);
+                apiSwitchHintView = null;
+            }
+            TextView hint = new TextView(layout.getContext());
+            hint.setText("🔄 已切换到 API " + index + "（" + model + "）");
+            hint.setTextSize(12f);
+            hint.setTextColor(Color.parseColor("#FFFFFFFF"));
+            hint.setPadding(12, 8, 12, 8);
+            hint.setBackgroundColor(Color.parseColor("#CC333333"));
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+            lp.leftMargin = 12;
+            lp.topMargin = 8;
+            hint.setLayoutParams(lp);
+            layout.addView(hint);
+            apiSwitchHintView = hint;
+            hint.postDelayed(() -> {
+                if (hint.getParent() != null) {
+                    ((ViewGroup) hint.getParent()).removeView(hint);
+                }
+                if (apiSwitchHintView == hint) apiSwitchHintView = null;
+            }, 3000);
+        } catch (Throwable ignored) {}
+    }
+
         private static void showLanguagePicker(Button btn, EditText edit) {
         if (btn == null || edit == null) return;
         android.content.Context ctx = edit.getContext();
@@ -2321,7 +2360,7 @@ if (pbm
         && newReplyControllerDetected) {
 
     pbmLiveContext = buildNewLiveChatContext(
-            AITranslator.getMaxChatMessagesForHook()
+            AITranslator.getLiveContextMax()
     );
 
     if (pbmLiveContext != null && !pbmLiveContext.trim().isEmpty()) {
@@ -2398,7 +2437,7 @@ String liveTranslateContext = null;
 if (!pbm && newReplyControllerDetected) {
 
     liveTranslateContext = buildNewLiveChatContext(
-            AITranslator.getMaxChatMessagesForHook()
+            AITranslator.getLiveContextMax()
     );
 }
             final String ftt = ttt;
@@ -2422,6 +2461,11 @@ if (!pbm && newReplyControllerDetected) {
             }
 
             new Thread(() -> {
+                AITranslator.setCallSource("picker");
+                AITranslator.setApiSwitchListener((index, model, url) -> {
+                    if (layout == null) return;
+                    showApiSwitchHint(layout, index, model, url);
+                });
                 try {
                     if (pbm) {
                         String answer;
@@ -2525,6 +2569,9 @@ result = AITranslator.translateForPicker(
                                 "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
                                 Toast.LENGTH_LONG).show();
                     });
+                } finally {
+                    AITranslator.clearCallSource();
+                    AITranslator.setApiSwitchListener(null);
                 }
             }).start();
         });

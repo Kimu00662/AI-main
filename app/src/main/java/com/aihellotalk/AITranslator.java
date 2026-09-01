@@ -159,9 +159,21 @@ private static class ApiEndpoint {
     boolean canSend() { return direction == 0 || direction == 2; }
 }
 
+public interface ApiSwitchListener {
+    void onApiSwitched(int index, String model, String url);
+}
+
 private static final List<ApiEndpoint> endpoints = new ArrayList<>();
 private static volatile int roundRobinIndex = 0;
 // ===== 輪換系統結束 =====
+private static volatile ApiEndpoint lastUsedEndpoint = null;
+private static volatile ApiSwitchListener apiSwitchListener = null;
+private static final ThreadLocal<String> callSource = new ThreadLocal<>();
+
+public static void setCallSource(String src) { callSource.set(src); }
+public static void clearCallSource() { callSource.remove(); }
+public static void setApiSwitchListener(ApiSwitchListener l) { apiSwitchListener = l; }
+
     private static double getTemperature() {
         double temp = 0.3;
         try {
@@ -216,6 +228,15 @@ public static int getMaxChatMessagesForHook() {
 
     if (n < 0) n = 0;
     if (n > 200) n = 200;
+
+    return n;
+}
+
+public static int getLiveContextMax() {
+    int n = readConfigInt("live_context_max", 30);
+
+    if (n < 0) n = 0;
+    if (n > 80) n = 80;
 
     return n;
 }
@@ -2544,6 +2565,15 @@ if (forceClient != null) {
 }
             String result = executeSingleRequest(useClient, body, targetEp);
             targetEp.onSuccess(); 
+            boolean switched = lastUsedEndpoint != null && lastUsedEndpoint != targetEp;
+            lastUsedEndpoint = targetEp;
+            if (!switched || !"picker".equals(callSource.get())) {
+                return result;
+            }
+            if (apiSwitchListener != null) {
+                int idx = endpoints.indexOf(targetEp) + 1;
+                apiSwitchListener.onApiSwitched(idx, targetEp.model, targetEp.url);
+            }
             return result;
         } catch (IOException e) {
             lastException = e;

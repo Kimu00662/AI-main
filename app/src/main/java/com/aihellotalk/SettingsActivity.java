@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 public class SettingsActivity extends Activity {
 
     private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat, etBannedWords;
+    private EditText etLiveContextMax;
+    private android.widget.CheckBox cbShowApiSwitchHint;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
     private EditText etPromptAR, etPromptPT, etPromptFR, etPromptDE, etPromptIT;
@@ -195,6 +197,19 @@ public class SettingsActivity extends Activity {
         etMaxChat = edit(prefs.getString("max_chat_messages", "30"));
         etMaxChat.setHint("建议 20~60，越大越慢但记忆越久");
         advContentLayout.addView(etMaxChat);
+
+        advContentLayout.addView(lab("新版实时 UI 上下文条数 (0=关闭, 建议 0~60):"));
+        etLiveContextMax = edit(prefs.getString("live_context_max", "30"));
+        etLiveContextMax.setHint("0=关闭实时UI上下文，越大越慢但语境越全；仅新版 6.4.0 生效");
+        advContentLayout.addView(etLiveContextMax);
+
+        android.widget.LinearLayout hintRow = new android.widget.LinearLayout(this);
+        hintRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        cbShowApiSwitchHint = new android.widget.CheckBox(this);
+        cbShowApiSwitchHint.setText("智能切换 API 时显示提示");
+        cbShowApiSwitchHint.setChecked(prefs.getBoolean("show_api_switch_hint", true));
+        hintRow.addView(cbShowApiSwitchHint);
+        advContentLayout.addView(hintRow);
 
         advContentLayout.addView(lab("最大输出长度 (Max Tokens):"));
         etMaxTokens = edit(prefs.getString("max_tokens", "8000"));
@@ -954,6 +969,10 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("model", mdl);
         editor.putString("temperature", tempStr);
         editor.putString("max_chat_messages", maxChatStr);
+        String liveContextMaxStr = etLiveContextMax.getText().toString().trim();
+        if (liveContextMaxStr.isEmpty()) liveContextMaxStr = "30";
+        editor.putString("live_context_max", liveContextMaxStr);
+        editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("banned_words", bannedStr);
         editor.putString("prompt_zh", zh);
@@ -1043,6 +1062,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
         final String finalMaxTokensStr = maxTokensStr;
         final String finalEffortStr = effortStr;
         final String finalMaxChatStr = maxChatStr;
+        final String finalLiveContextMaxStr = liveContextMaxStr;
+        final boolean finalShowApiSwitchHint = cbShowApiSwitchHint.isChecked();
         final String finalBannedStr = bannedStr;
         final String fq1 = q1, fq2 = q2, fq3 = q3, fq4 = q4, fq5 = q5;
         
@@ -1110,6 +1131,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 + "reasoning_effort_8=" + prefs.getString("reasoning_effort_8", "default") + "\n"
 + "stealth_hide_read=" + prefs.getBoolean("stealth_hide_read", true) + "\n"
 + "stealth_hide_typing=" + prefs.getBoolean("stealth_hide_typing", true) + "\n"
++ "live_context_max=" + finalLiveContextMaxStr + "\n"
++ "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "EOF\n";
                 runRoot(cfg);
 

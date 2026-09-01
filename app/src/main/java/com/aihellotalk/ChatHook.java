@@ -394,57 +394,57 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
     }
 
     private static String bruteFindLocalImagePathFromBean(Object imageBean) {
-        if (imageBean == null) return null;
+    if (imageBean == null) return null;
 
-        String url = safeCallString(imageBean, "getUrl");
-if (url == null) url = safeCallString(imageBean, "B");
-String compressedUrl = safeCallString(imageBean, "getCompressedUrl");
-if (compressedUrl == null) compressedUrl = safeCallString(imageBean, "p");
-        String urlNorm = safeNormalize(url);
-        String compressedNorm = safeNormalize(compressedUrl);
-        String urlName = fileNameFromUrl(url);
-        String compressedName = fileNameFromUrl(compressedUrl);
+    String url = safeCallString(imageBean, "getUrl");
+    if (url == null) url = safeCallString(imageBean, "B");
+    String compressedUrl = safeCallString(imageBean, "getCompressedUrl");
+    if (compressedUrl == null) compressedUrl = safeCallString(imageBean, "p");
+    String urlNorm = safeNormalize(url);
+    String compressedNorm = safeNormalize(compressedUrl);
+    String urlName = fileNameFromUrl(url);
+    String compressedName = fileNameFromUrl(compressedUrl);
 
-        String cachedByUrl = imageUrlToPathMap.get(url);
-        if (cachedByUrl != null && new File(cachedByUrl).exists()) return cachedByUrl;
-        String cachedByCompressed = imageUrlToPathMap.get(compressedUrl);
-        if (cachedByCompressed != null && new File(cachedByCompressed).exists()) return cachedByCompressed;
+    String cachedByUrl = imageUrlToPathMap.get(url);
+    if (cachedByUrl != null && new File(cachedByUrl).exists()) return cachedByUrl;
+    String cachedByCompressed = imageUrlToPathMap.get(compressedUrl);
+    if (cachedByCompressed != null && new File(cachedByCompressed).exists()) return cachedByCompressed;
 
-        File dir = getHelloTalkImageCacheDir();
-        if (dir != null && dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f == null || !f.exists() || f.length() <= 0) continue;
-                    String name = f.getName();
-                    if (urlName != null && !urlName.isEmpty() && name.contains(urlName)) return f.getAbsolutePath();
-                    if (compressedName != null && !compressedName.isEmpty() && name.contains(compressedName)) return f.getAbsolutePath();
-                }
+    File dir = getHelloTalkImageCacheDir();
+    if (dir != null && dir.exists() && dir.isDirectory()) {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f == null || !f.exists() || f.length() <= 0) continue;
+                String name = f.getName();
+                if (urlName != null && !urlName.isEmpty() && name.contains(urlName)) return f.getAbsolutePath();
+                if (compressedName != null && !compressedName.isEmpty() && name.contains(compressedName)) return f.getAbsolutePath();
             }
         }
-
-        synchronized (recentRenderedImages) {
-            for (RenderedImageInfo info : recentRenderedImages) {
-                if (info == null || info.path == null) continue;
-                File f = new File(info.path);
-                if (!f.exists() || f.length() <= 0) continue;
-                String infoUrl = safeNormalize(info.url);
-                String infoCompressed = safeNormalize(info.compressedUrl);
-                if (urlNorm != null && infoUrl != null
-                        && (urlNorm.equals(infoUrl) || infoUrl.contains(urlNorm) || urlNorm.contains(infoUrl))) {
-                    return info.path;
-                }
-                if (compressedNorm != null && infoCompressed != null
-                        && (compressedNorm.equals(infoCompressed) || infoCompressed.contains(compressedNorm) || compressedNorm.contains(infoCompressed))) {
-                    return info.path;
-                }
-                String infoName = f.getName();
-                if (urlName != null && infoName.contains(urlName)) return info.path;
-                if (compressedName != null && infoName.contains(compressedName)) return info.path;
-            }
-        }
-        return null;
     }
+
+    synchronized (recentRenderedImages) {
+        for (RenderedImageInfo info : recentRenderedImages) {
+            if (info == null || info.path == null) continue;
+            File f = new File(info.path);
+            if (!f.exists() || f.length() <= 0) continue;
+            String infoUrl = safeNormalize(info.url);
+            String infoCompressed = safeNormalize(info.compressedUrl);
+            if (urlNorm != null && infoUrl != null
+                    && (urlNorm.equals(infoUrl) || infoUrl.contains(urlNorm) || urlNorm.contains(infoUrl))) {
+                return info.path;
+            }
+            if (compressedNorm != null && infoCompressed != null
+                    && (compressedNorm.equals(infoCompressed) || infoCompressed.contains(compressedNorm) || compressedNorm.contains(infoCompressed))) {
+                return info.path;
+            }
+            String infoName = f.getName();
+            if (urlName != null && infoName.contains(urlName)) return info.path;
+            if (compressedName != null && infoName.contains(compressedName)) return info.path;
+        }
+    }
+    return "[对方发送了一张图片]";  // <-- 改成这一行
+}
 
 // ===== 新版 HelloTalk 精准回复状态 =====
 //
@@ -2059,8 +2059,9 @@ private static void setBeanField(Object bean, String text) {
         listView.setOnItemClickListener((parent, view, position, id) -> {
             String code = codes[position];
             if ("auto".equals(code)) chatLangOverride.remove(cid);
+// 在选语言那一行后面加这行
 else chatLangOverride.put(cid, code);
-saveLangOverrides();
+saveLangOverrides();  // 这行已经在你文件里了
 updateTranslateBtnText(btn);
             Toast.makeText(ctx, "当前聊天语言已设为：" + names[position], Toast.LENGTH_SHORT).show();
             dialog.dismiss();

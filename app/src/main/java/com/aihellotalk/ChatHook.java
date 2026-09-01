@@ -55,6 +55,41 @@ private static volatile Object currentChatDetailFragment = null;
     private static final Set<String> translating = ConcurrentHashMap.newKeySet();
     private static final Set<String> recordedMsgIds = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<String, String> chatLangOverride = new ConcurrentHashMap<>();
+    private static final File LANG_OVERRIDE_FILE =
+        new File("/data/data/com.hellotalk/files/htai_lang_override.txt");
+
+private static void loadLangOverrides() {
+    try {
+        if (!LANG_OVERRIDE_FILE.exists()) return;
+        BufferedReader r = new BufferedReader(new FileReader(LANG_OVERRIDE_FILE));
+        String line;
+        while ((line = r.readLine()) != null) {
+            int eq = line.indexOf('=');
+            if (eq <= 0) continue;
+            String id = line.substring(0, eq).trim();
+            String code = line.substring(eq + 1).trim();
+            if (!id.isEmpty() && !code.isEmpty() && !"auto".equals(code)) {
+                chatLangOverride.put(id, code);
+            }
+        }
+        r.close();
+    } catch (Throwable ignored) {}
+}
+
+private static void saveLangOverrides() {
+    try {
+        File parent = LANG_OVERRIDE_FILE.getParentFile();
+        if (parent != null) parent.mkdirs();
+        java.io.BufferedWriter w = new java.io.BufferedWriter(new java.io.FileWriter(LANG_OVERRIDE_FILE));
+        for (java.util.Map.Entry<String, String> e : chatLangOverride.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null && !e.getValue().isEmpty()) {
+                w.write(e.getKey() + "=" + e.getValue());
+                w.newLine();
+            }
+        }
+        w.close();
+    } catch (Throwable ignored) {}
+}
     private static final ConcurrentHashMap<String, String> chatRequestMap = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Integer> chatRetryCountMap = new ConcurrentHashMap<>();
 
@@ -231,6 +266,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
 
     public static void install(ClassLoader cl) {
         hostClassLoader = cl;
+        loadLangOverrides();
         log("=== Hook v5.5 精准回复修复版 ===");
 
         try {
@@ -361,7 +397,9 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
         if (imageBean == null) return null;
 
         String url = safeCallString(imageBean, "getUrl");
-        String compressedUrl = safeCallString(imageBean, "getCompressedUrl");
+if (url == null) url = safeCallString(imageBean, "B");
+String compressedUrl = safeCallString(imageBean, "getCompressedUrl");
+if (compressedUrl == null) compressedUrl = safeCallString(imageBean, "p");
         String urlNorm = safeNormalize(url);
         String compressedNorm = safeNormalize(compressedUrl);
         String urlName = fileNameFromUrl(url);
@@ -706,7 +744,23 @@ private static String extractNewLiveMessageText(Object msg) {
 
             return result.isEmpty() ? null : result;
         }
-
+if ("image".equals(msgType) || "photo".equals(msgType)) {
+    try {
+        Class<?> imageBeanClass = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.delegate.image.IMImageBean",
+                hostClassLoader
+        );
+        if (imageBeanClass == null) {
+            return "[对方发送了一张图片]";
+        }
+        Object bean = XposedHelpers.callMethod(msg, "B", imageBeanClass);
+        String lp = bruteFindLocalImagePathFromBean(bean);
+        if (lp != null && new File(lp).exists()) {
+            return "[LOCAL_IMAGE:" + lp + "]";
+        }
+    } catch (Throwable ignored) {}
+    return "[对方发送了一张图片]";
+}
         if ("translate".equals(msgType)) {
 
             Class<?> transBeanClass = XposedHelpers.findClassIfExists(
@@ -1106,23 +1160,7 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
     private static void hookUltimateStealth(ClassLoader cl) {
     boolean hideTyping = readStealthConfig("stealth_hide_typing", true);
     boolean hideRead = readStealthConfig("stealth_hide_read", true);
-
-    if (hideTyping) {
-        try {
-            Class<?> tc = XposedHelpers.findClassIfExists(
-                    "com.hellotalk.talk.detail.controller.title.TalkSingleTitleController", cl);
-            if (tc != null) {
-                XposedBridge.hookAllMethods(tc, "s0", new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam p) {
-                        p.setResult(null);
-                    }
-                });
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    if (!hideRead && !hideTyping) return;
+    boolean isNewHt = XposedHelpers.findClassIfExists("m4t", cl) != null;
 
     XC_MethodHook kill = new XC_MethodHook() {
         @Override
@@ -1130,6 +1168,17 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
             p.setResult(null);
         }
     };
+
+    // ===== 旧版：原样保留 =====
+    if (hideTyping) {
+        try {
+            Class<?> tc = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.controller.title.TalkSingleTitleController", cl);
+            if (tc != null) {
+                XposedBridge.hookAllMethods(tc, "s0", kill);
+            }
+        } catch (Throwable ignored) {}
+    }
 
     if (hideRead) {
         try {
@@ -1174,7 +1223,32 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
             }
         } catch (Throwable ignored) {}
     }
+
+    // ===== 新版 6.4.0：没有 m4t 就整段不执行 =====
+    if (!isNewHt) return;
+
+    if (hideTyping) {
+        try {
+            Class<?> pit = XposedHelpers.findClassIfExists("pit", cl);
+            if (pit != null) {
+                XposedBridge.hookAllMethods(pit, "O", kill);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    if (hideRead) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.hellotalk.lib.im.service.impl.base.IMChatBaseServiceImpl",
+                    cl,
+                    "t",
+                    int.class,
+                    String.class,
+                    kill);
+        } catch (Throwable ignored) {}
+    }
 }
+
 
 private static boolean readStealthConfig(String key, boolean def) {
     try {
@@ -1511,46 +1585,56 @@ private static Object callObjMethod(Object obj, String oldName, String newName) 
                 });
     }
 
-    private static void hookImageRenderLayer(ClassLoader cl) {
-        try {
-            Class<?> imc = XposedHelpers.findClassIfExists(
-                    "com.hellotalk.talk.detail.widget.msgcard.ImageMsgCard", cl);
-            if (imc != null) {
-                XposedBridge.hookAllMethods(imc, "c", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        if (p.args == null || p.args.length < 2) return;
+private static void hookImageRenderLayer(ClassLoader cl) {
+    try {
+        Class<?> imc = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.widget.msgcard.ImageMsgCard", cl);
+        if (imc == null) return;
 
-                        Object ib = p.args[0];
-                        Object fpo = p.args[1];
-                        if (!(fpo instanceof String)) return;
+        XC_MethodHook imageHook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    if (p.args == null || p.args.length < 2) return;
+                    Object ib = p.args[0];
+                    Object fpo = p.args[1];
+                    if (!(fpo instanceof String)) return;
 
-                        String fp = (String) fpo;
-                        File img = new File(fp);
-                        if (!img.exists() || img.length() <= 0) return;
+                    String fp = (String) fpo;
+                    File img = new File(fp);
+                    if (!img.exists() || img.length() <= 0) return;
 
-                        String url = null;
-                        String cu = null;
-                        try { url = (String) XposedHelpers.callMethod(ib, "getUrl"); } catch (Throwable ignored) {}
-                        try { cu = (String) XposedHelpers.callMethod(ib, "getCompressedUrl"); } catch (Throwable ignored) {}
+                    String url = null;
+                    String cu = null;
+                    try { url = (String) XposedHelpers.callMethod(ib, "getUrl"); } catch (Throwable ignored) {}
+                    try { if (url == null) url = (String) XposedHelpers.callMethod(ib, "B"); } catch (Throwable ignored) {}
+                    try { cu = (String) XposedHelpers.callMethod(ib, "getCompressedUrl"); } catch (Throwable ignored) {}
+                    try { if (cu == null) cu = (String) XposedHelpers.callMethod(ib, "p"); } catch (Throwable ignored) {}
 
-                        putImageMapping(url, fp);
-                        putImageMapping(cu, fp);
-                        putImageMapping(safeNormalize(url), fp);
-                        putImageMapping(safeNormalize(cu), fp);
+                    putImageMapping(url, fp);
+                    putImageMapping(cu, fp);
+                    putImageMapping(safeNormalize(url), fp);
+                    putImageMapping(safeNormalize(cu), fp);
 
-                        String un = fileNameFromUrl(url);
-                        String cn = fileNameFromUrl(cu);
-                        if (un != null) putImageMapping("fname:" + un, fp);
-                        if (cn != null) putImageMapping("fname:" + cn, fp);
+                    String un = fileNameFromUrl(url);
+                    String cn = fileNameFromUrl(cu);
+                    if (un != null) putImageMapping("fname:" + un, fp);
+                    if (cn != null) putImageMapping("fname:" + cn, fp);
 
-                        addRenderedImageRecord(fp, url, cu);
-                    }
-                });
+                    addRenderedImageRecord(fp, url, cu);
+                } catch (Throwable ignored) {}
             }
-        } catch (Throwable ignored) {}
-    }
+        };
 
+        // 旧版：继续 hook c
+        try { XposedBridge.hookAllMethods(imc, "c", imageHook); } catch (Throwable ignored) {}
+
+        // 新版：只有存在 m4t 才 hook b
+        if (XposedHelpers.findClassIfExists("m4t", cl) != null) {
+            try { XposedBridge.hookAllMethods(imc, "b", imageHook); } catch (Throwable ignored) {}
+        }
+    } catch (Throwable ignored) {}
+}
         private static void hookRecv(ClassLoader cl) throws Exception {
     Class<?> hm = cl.loadClass("com.hellotalk.lib.im.entity.HTIMMessage");
 
@@ -1975,8 +2059,9 @@ private static void setBeanField(Object bean, String text) {
         listView.setOnItemClickListener((parent, view, position, id) -> {
             String code = codes[position];
             if ("auto".equals(code)) chatLangOverride.remove(cid);
-            else chatLangOverride.put(cid, code);
-            updateTranslateBtnText(btn);
+else chatLangOverride.put(cid, code);
+saveLangOverrides();
+updateTranslateBtnText(btn);
             Toast.makeText(ctx, "当前聊天语言已设为：" + names[position], Toast.LENGTH_SHORT).show();
             dialog.dismiss();
         });
@@ -2365,13 +2450,18 @@ if (newReplyControllerDetected
         && flive != null
         && !flive.trim().isEmpty()) {
 
-    result = AITranslator.translateForPickerLive(
-            ftt,
-            tl,
-            cs,
-            retry,
-            flive
-    );
+    String oldStyleText =
+        "【当前 HelloTalk 真实对话】\n"
+        + flive.trim()
+        + "\n\n"
+        + ftt;
+
+result = AITranslator.translateForPicker(
+        oldStyleText,
+        tl,
+        cs,
+        retry
+);
 
 } else {
 

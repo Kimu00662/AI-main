@@ -2012,7 +2012,7 @@ private static void setBeanField(Object bean, String text) {
                             ((ViewGroup) hint.getParent()).removeView(hint);
                         }
                         if (apiSwitchHintView == hint) apiSwitchHintView = null;
-                    }, 5000);
+                    }, 8000);
                 } catch (Throwable t) {
                     XposedBridge.log("HT_AI 黑框提示addView失败: " + t.getMessage());
                 }

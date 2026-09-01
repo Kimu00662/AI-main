@@ -447,6 +447,30 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
     return "[对方发送了一张图片]";  // <-- 改成这一行
 }
 
+// ===== 新版 6.4.0 图片真实本地路径 =====
+// ChatFileManager.generateFile() 路径规则：
+// /sdcard/Android/data/com.hellotalk/files/hellotalk/chat_v2/chat_<chatId>/<msgType>/<contentId>
+private static String getImageFileForNewMsg(Object msg) {
+    try {
+        if (msg == null) return null;
+        Object chatIdObj = XposedHelpers.callMethod(msg, "w");
+        Object msgTypeObj = XposedHelpers.callMethod(msg, "M");
+        Object contentIdObj = XposedHelpers.callMethod(msg, "L");
+        String chatId = chatIdObj == null ? null : String.valueOf(chatIdObj);
+        String msgType = msgTypeObj == null ? null : String.valueOf(msgTypeObj);
+        String contentId = contentIdObj == null ? null : String.valueOf(contentIdObj);
+        if (chatId == null || chatId.isEmpty() || "0".equals(chatId)
+                || msgType == null || contentId == null || contentId.isEmpty()) {
+            return null;
+        }
+        String base = "/storage/emulated/0/Android/data/com.hellotalk/files/hellotalk/chat_v2";
+        File f = new File(new File(new File(base, "chat_" + chatId), msgType), contentId);
+        if (f.exists() && f.length() > 0) {
+            return f.getAbsolutePath();
+        }
+    } catch (Throwable ignored) {}
+    return null;
+}
 
 // ===== 新版 HelloTalk 精准回复状态 =====
 //
@@ -756,10 +780,11 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
             return "[对方发送了一张图片]";
         }
         Object bean = XposedHelpers.callMethod(msg, "B", imageBeanClass);
-        String lp = bruteFindLocalImagePathFromBean(bean);
-        if (lp != null && new File(lp).exists()) {
-            return "[LOCAL_IMAGE:" + lp + "]";
-        }
+String lp = getImageFileForNewMsg(msg);
+if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
+if (lp != null && new File(lp).exists()) {
+    return "[LOCAL_IMAGE:" + lp + "]";
+}
     } catch (Throwable ignored) {}
     return "[对方发送了一张图片]";
 }
@@ -1059,12 +1084,16 @@ added++;
             selectedReplyValid = true;
 
             if ("image".equals(mt) || "photo".equals(mt)) {
-                if (currentQuotedImagePath == null) {
-                    currentQuotedImageMissing = true;
-                }
-            } else {
-                currentQuotedImageMissing = false;
-            }
+    String imgPath = getImageFileForNewMsg(msg);
+    if (imgPath != null) {
+        currentQuotedImagePath = imgPath;
+        currentQuotedImageMissing = false;
+    } else if (currentQuotedImagePath == null) {
+        currentQuotedImageMissing = true;
+    }
+} else {
+    currentQuotedImageMissing = false;
+}
 
             log("selectedReply: mine=" + isMine + " type=" + mt + " text=" + selectedReplyText);
         } catch (Throwable t) {

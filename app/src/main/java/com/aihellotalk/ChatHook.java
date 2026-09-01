@@ -447,28 +447,6 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
     return "[对方发送了一张图片]";  // <-- 改成这一行
 }
 
-    synchronized (recentRenderedImages) {
-        for (RenderedImageInfo info : recentRenderedImages) {
-            if (info == null || info.path == null) continue;
-            File f = new File(info.path);
-            if (!f.exists() || f.length() <= 0) continue;
-            String infoUrl = safeNormalize(info.url);
-            String infoCompressed = safeNormalize(info.compressedUrl);
-            if (urlNorm != null && infoUrl != null
-                    && (urlNorm.equals(infoUrl) || infoUrl.contains(urlNorm) || urlNorm.contains(infoUrl))) {
-                return info.path;
-            }
-            if (compressedNorm != null && infoCompressed != null
-                    && (compressedNorm.equals(infoCompressed) || infoCompressed.contains(compressedNorm) || compressedNorm.contains(infoCompressed))) {
-                return info.path;
-            }
-            String infoName = f.getName();
-            if (urlName != null && infoName.contains(urlName)) return info.path;
-            if (compressedName != null && infoName.contains(compressedName)) return info.path;
-        }
-    }
-    return "[对方发送了一张图片]";  // <-- 改成这一行
-}
 
 // ===== 新版 HelloTalk 精准回复状态 =====
 //

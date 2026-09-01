@@ -1184,15 +1184,39 @@ public static String askAiQuestionLive(String text, String chatId) throws IOExce
                 )
         );
 
-        // 关键：
-        // 这里只有 ChatHook 传进来的实时内容。
-        // 不读取任何模块旧 history。
-        messages.put(
-                createMessageObj(
-                        "user",
-                        cleanText
-                )
-        );
+ // 关键：
+// 这里只有 ChatHook 传进来的实时内容。
+// 不读取模块旧 history 里的普通聊天记录。
+// 但图片视觉存档是 AI 自己生成的历史记忆，可以安全读回。
+StringBuilder userTextBuilder = new StringBuilder();
+
+try {
+    JSONArray hist = loadHistory(chatId);
+    StringBuilder imgMemories = new StringBuilder();
+    int imgCount = 1;
+    for (int i = 0; i < hist.length(); i++) {
+        String c = hist.getJSONObject(i).optString("content", "");
+        if (c != null && (c.contains("【图片视觉存档】") || c.contains("[图片记忆:"))) {
+            imgMemories.append("第").append(imgCount).append("张图片: ").append(c).append("\n");
+            imgCount++;
+        }
+    }
+    if (imgMemories.length() > 0) {
+        userTextBuilder.append("【历史图片全局记忆】\n")
+                .append("以下是聊天中出现过的图片描述存档（AI 之前识别后保存）。如果用户提到以前的图片（如“刚才那张”），请优先参考这里：\n")
+                .append(imgMemories.toString())
+                .append("\n");
+    }
+} catch (Throwable ignored) {}
+
+userTextBuilder.append(cleanText);
+
+messages.put(
+        createMessageObj(
+                "user",
+                userTextBuilder.toString()
+        )
+);
 
         String answer = callChatMessages(messages);
 
@@ -2313,20 +2337,38 @@ public static String translateForPickerLive(
 
         messages.put(createMessageObj("system", fullProtocol));
 
-        StringBuilder scriptBuilder = new StringBuilder();
+StringBuilder scriptBuilder = new StringBuilder();
 
-        scriptBuilder.append("【当前 HelloTalk 真实对话】\n");
-
-        if (liveContext != null && !liveContext.trim().isEmpty()) {
-            scriptBuilder.append(liveContext.trim());
-        } else {
-            scriptBuilder.append("（当前没有可用实时上下文）");
+try {
+    JSONArray hist = loadHistory(chatId);
+    StringBuilder imgMemories = new StringBuilder();
+    int imgCount = 1;
+    for (int i = 0; i < hist.length(); i++) {
+        String c = hist.getJSONObject(i).optString("content", "");
+        if (c != null && (c.contains("【图片视觉存档】") || c.contains("[图片记忆:"))) {
+            imgMemories.append("第").append(imgCount).append("张图片: ").append(c).append("\n");
+            imgCount++;
         }
+    }
+    if (imgMemories.length() > 0) {
+        scriptBuilder.append("【历史图片全局记忆】\n")
+                .append("以下是聊天中出现过的图片描述存档（AI 之前识别后保存）。如果当前对话涉及以前的图片，请优先参考这里：\n")
+                .append(imgMemories.toString())
+                .append("\n");
+    }
+} catch (Throwable ignored) {}
 
-        scriptBuilder.append("\n\n<translate>\n")
-                .append(text)
-                .append("\n</translate>");
+scriptBuilder.append("【当前 HelloTalk 真实对话】\n");
 
+if (liveContext != null && !liveContext.trim().isEmpty()) {
+    scriptBuilder.append(liveContext.trim());
+} else {
+    scriptBuilder.append("（当前没有可用实时上下文）");
+}
+
+scriptBuilder.append("\n\n<translate>\n")
+        .append(text)
+        .append("\n</translate>");
         messages.put(createMessageObj("user", scriptBuilder.toString()));
 
         try {

@@ -267,6 +267,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     public static void install(ClassLoader cl) {
         hostClassLoader = cl;
         loadLangOverrides();
+        loadLangOverrides();
         log("=== Hook v5.5 精准回复修复版 ===");
 
         try {

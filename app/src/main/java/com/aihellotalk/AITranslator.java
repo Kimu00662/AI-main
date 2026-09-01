@@ -168,11 +168,15 @@ private static volatile int roundRobinIndex = 0;
 // ===== 輪換系統結束 =====
 private static volatile ApiEndpoint lastUsedEndpoint = null;
 private static volatile ApiSwitchListener apiSwitchListener = null;
+private static volatile boolean emergencyStop = false;
 private static final ThreadLocal<String> callSource = new ThreadLocal<>();
 
 public static void setCallSource(String src) { callSource.set(src); }
 public static void clearCallSource() { callSource.remove(); }
 public static void setApiSwitchListener(ApiSwitchListener l) { apiSwitchListener = l; }
+public static void requestEmergencyStop() { emergencyStop = true; }
+public static boolean isEmergencyStop() { return emergencyStop; }
+public static void clearEmergencyStop() { emergencyStop = false; }
 
     private static double getTemperature() {
         double temp = 0.3;
@@ -629,6 +633,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
     }
 
         public static void cancelOngoingTranslation() {
+        emergencyStop = true;
         try {
             // 1. 踩死主通道刹车
             if (client != null) client.dispatcher().cancelAll();

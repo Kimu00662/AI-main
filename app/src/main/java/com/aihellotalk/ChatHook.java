@@ -2249,7 +2249,7 @@ updateTranslateBtnText(btn);
 
             @Override
             public void onTextChanged(CharSequence s, int st, int b, int c) {
-                if (s != null && isTranslatingAPI && s.toString().contains("@")) {
+                if (s != null && s.toString().contains("@")) {
                     AITranslator.cancelOngoingTranslation();
                     String cl = s.toString().replace("@", "");
                     edit.removeTextChangedListener(this);
@@ -2474,6 +2474,7 @@ if (!pbm && newReplyControllerDetected) {
 
             new Thread(() -> {
                 AITranslator.setCallSource("picker");
+                AITranslator.clearEmergencyStop();
                 AITranslator.setApiSwitchListener((index, model, url) -> {
                     if (layout == null) return;
                     showApiSwitchHint(layout, index, model, url);
@@ -2573,16 +2574,20 @@ result = AITranslator.translateForPicker(
                     chatRequestMap.remove(cs);
                     chatRetryCountMap.put(cs, 0);
 
+                    final boolean stopped = AITranslator.isEmergencyStop();
                     edit.post(() -> {
                         btn.setEnabled(true);
                         updateTranslateBtnText(btn);
                         btn.setAlpha(0.88f);
-                        Toast.makeText(edit.getContext(),
-                                "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
-                                Toast.LENGTH_LONG).show();
+                        if (!stopped) {
+                            Toast.makeText(edit.getContext(),
+                                    "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
+                                    Toast.LENGTH_LONG).show();
+                        }
                     });
                 } finally {
                     AITranslator.clearCallSource();
+                    AITranslator.clearEmergencyStop();
                     AITranslator.setApiSwitchListener(null);
                 }
             }).start();

@@ -178,7 +178,7 @@ public class SettingsActivity extends Activity {
         // ================= 折叠区 1：高级与安全设置 =================
         LinearLayout advHeaderLayout = createHeaderLayout();
         advHeaderTitle = new TextView(this);
-        boolean isAdvExpanded = prefs.getBoolean("adv_expanded", false);
+        boolean isAdvExpanded = false;
         styleHeaderTitle(advHeaderTitle, isAdvExpanded ? "▼ ⚙️ 高级与安全设置 (点击折叠)" : "▶ ⚙️ 高级与安全设置 (点击展开)");
         advHeaderLayout.addView(advHeaderTitle);
         ll.addView(advHeaderLayout);
@@ -227,7 +227,7 @@ public class SettingsActivity extends Activity {
         // ================= 折叠区 1.5：多API智能密钥配置 =================
         LinearLayout apiHeaderLayout = createHeaderLayout();
         TextView apiHeaderTitle = new TextView(this);
-        boolean isApiExpanded = prefs.getBoolean("api_expanded", false);
+        boolean isApiExpanded = false;
         styleHeaderTitle(apiHeaderTitle, isApiExpanded ? "▼ 🔄 多API智能密钥配置（最多8個） (点击折叠)" : "▶ 🔄 多API智能密钥配置（最多8個） (点击展开)");
         apiHeaderLayout.addView(apiHeaderTitle);
         ll.addView(apiHeaderLayout);
@@ -387,7 +387,7 @@ public class SettingsActivity extends Activity {
         // ================= 隐身开关 =================
 LinearLayout stealthHeaderLayout = createHeaderLayout();
 TextView stealthHeaderTitle = new TextView(this);
-boolean isStealthExpanded = prefs.getBoolean("stealth_expanded", false);
+boolean isStealthExpanded = false;
 styleHeaderTitle(stealthHeaderTitle, isStealthExpanded ? "▼ 🕵️ 隐身与反检测 (点击折叠)" : "▶ 🕵️ 隐身与反检测 (点击展开)");
 stealthHeaderLayout.addView(stealthHeaderTitle);
 ll.addView(stealthHeaderLayout);
@@ -434,7 +434,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         // ================= 折叠区 2：语言专属指令 =================
         LinearLayout promptHeaderLayout = createHeaderLayout();
         promptHeaderTitle = new TextView(this);
-        boolean isPromptExpanded = prefs.getBoolean("prompt_expanded", false);
+        boolean isPromptExpanded = false;
         styleHeaderTitle(promptHeaderTitle, isPromptExpanded ? "▼ 🌐 语言专属指令设置 (点击折叠)" : "▶ 🌐 语言专属指令设置 (点击展开)");
         promptHeaderLayout.addView(promptHeaderTitle);
         ll.addView(promptHeaderLayout);
@@ -516,7 +516,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         // ================= 折叠区 3：弹窗快捷选项 =================
         LinearLayout quickHeaderLayout = createHeaderLayout();
         TextView quickHeaderTitle = new TextView(this);
-        boolean isQuickExpanded = prefs.getBoolean("quick_expanded", false);
+        boolean isQuickExpanded = false;
         styleHeaderTitle(quickHeaderTitle, isQuickExpanded ? "▼ ⚡ 弹窗快捷选项 (点击折叠)" : "▶ ⚡ 弹窗快捷选项 (点击展开)");
         quickHeaderLayout.addView(quickHeaderTitle);
         ll.addView(quickHeaderLayout);

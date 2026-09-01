@@ -450,27 +450,23 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
 // ===== 新版 6.4.0 图片真实本地路径 =====
 // ChatFileManager.generateFile() 路径规则：
 // /sdcard/Android/data/com.hellotalk/files/hellotalk/chat_v2/chat_<chatId>/<msgType>/<contentId>
-private static String getImageFileForNewMsg(Object msg) {
-    try {
-        if (msg == null) return null;
-        Object chatIdObj = XposedHelpers.callMethod(msg, "w");
-        Object msgTypeObj = XposedHelpers.callMethod(msg, "M");
-        Object contentIdObj = XposedHelpers.callMethod(msg, "L");
-        String chatId = chatIdObj == null ? null : String.valueOf(chatIdObj);
-        String msgType = msgTypeObj == null ? null : String.valueOf(msgTypeObj);
-        String contentId = contentIdObj == null ? null : String.valueOf(contentIdObj);
-        if (chatId == null || chatId.isEmpty() || "0".equals(chatId)
-                || msgType == null || contentId == null || contentId.isEmpty()) {
-            return null;
-        }
-        String base = "/storage/emulated/0/Android/data/com.hellotalk/files/hellotalk/chat_v2";
-        File f = new File(new File(new File(base, "chat_" + chatId), msgType), contentId);
-        if (f.exists() && f.length() > 0) {
-            return f.getAbsolutePath();
-        }
-    } catch (Throwable ignored) {}
-    return null;
-}
+    private static String getImageFileForNewMsg(Object msg) {
+        try {
+            if (msg == null) return null;
+            Class<?> zry = XposedHelpers.findClass("zry", hostClassLoader);
+            if (zry == null) return null;
+            Object manager = XposedHelpers.callStaticMethod(zry, "Q");
+            if (manager == null) return null;
+            Object f = XposedHelpers.callMethod(manager, "d", msg);
+            if (f instanceof File) {
+                File file = (File) f;
+                if (file.exists() && file.length() > 0) {
+                    return file.getAbsolutePath();
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
 
 // ===== 新版 HelloTalk 精准回复状态 =====
 //

@@ -1344,8 +1344,13 @@ if (d != null && !d.equals(s)) {
     param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
     return;
 }
-// 对方发的：查 foreignToChinese，命中替换为中文 + 🔄
-d = AITranslator.foreignToChinese.get(s);
+// 对方发的：按好友隔离查缓存，命中替换为中文 + 🔄
+String cidNow = currentChatId;
+if (cidNow != null && !cidNow.trim().isEmpty() && !"0".equals(cidNow) && !"null".equalsIgnoreCase(cidNow)) {
+    d = AITranslator.getReceivedCached(cidNow, s);
+} else {
+    d = AITranslator.foreignToChinese.get(s);
+}
 if (d != null && !d.equals(s)) {
     param.args[0] = d + " 🔄";
     return;
@@ -1353,15 +1358,20 @@ if (d != null && !d.equals(s)) {
 
                 // 缓存没命中，丢后台翻译
                 final String ft = s;
+                final String cid = cidNow;
                 final String key = "tv_" + ft;
                 final TextView tv = (TextView) param.thisObject;
                 if (!translating.add(key)) return;
                 reverseTranslateExecutor.execute(() -> {
                     AITranslator.setCallSource("receive");
                     try {
-                        String t = AITranslator.toChinese(ft, currentChatId);
+                        String t = AITranslator.toChinese(ft, cid);
                         if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
-                            AITranslator.cacheResult(key, ft, t);
+                            if (cid != null && !cid.trim().isEmpty() && !"0".equals(cid) && !"null".equalsIgnoreCase(cid)) {
+                                AITranslator.cacheReceived(cid, ft, t);
+                            } else {
+                                AITranslator.cacheResult(key, ft, t);
+                            }
                             tv.post(() -> {
                                 try { tv.setText(t + " 🔄"); } catch (Throwable ignored) {}
                             });

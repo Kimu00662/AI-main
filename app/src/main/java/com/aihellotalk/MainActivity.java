@@ -832,6 +832,13 @@ String out = runRoot(
                 runRoot("rm /data/data/com.hellotalk/files/htai_profile_" + s.id + ".txt 2>/dev/null");
                 runRoot("rm /data/local/tmp/htai_store/htai_hist_" + s.id + ".json /data/local/tmp/htai_store/htai_profile_" + s.id + ".txt 2>/dev/null");
 
+                // 删除该好友的按好友翻译缓存（htai_friend_cache.txt 中 chatId||| 开头的行）
+                runRoot("grep -v \"^" + s.id + "|||\" /data/data/com.hellotalk/files/htai_friend_cache.txt > /data/local/tmp/htai_fc.tmp 2>/dev/null; "
+                        + "mv /data/local/tmp/htai_fc.tmp /data/data/com.hellotalk/files/htai_friend_cache.txt 2>/dev/null; "
+                        + "chmod 666 /data/data/com.hellotalk/files/htai_friend_cache.txt 2>/dev/null");
+                // 重启 HelloTalk，使其丢弃进程内残留的旧缓存
+                runRoot("am force-stop com.hellotalk");
+
                 String friendsPath = "/data/data/com.hellotalk/files/htai_friends.json";
                 String jsonStr = runRoot("cp " + friendsPath + " /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
                 if (jsonStr != null && !jsonStr.trim().isEmpty()) {

@@ -62,7 +62,11 @@ public class AITranslator {
     private static final Map<String, String> imageBase64Cache = new ConcurrentHashMap<>();
     private static final Set<String> oneTimeSentSuppress = ConcurrentHashMap.newKeySet();
 
+    // 按好友隔离的接收翻译缓存：键 = chatId + "\u0001" + 外文原文，值 = 中文
+    private static final Map<String, String> friendReceiveCache = new ConcurrentHashMap<>();
+
     private static File cacheFile;
+    private static File friendCacheFile;
     private static File promptFile;
     private static File draftsFile;
 
@@ -523,10 +527,12 @@ private static volatile OkHttpClient receiveClient = null;
                 .build();
 
         cacheFile = new File("/data/data/com.hellotalk/files/htai_cache.txt");
+        friendCacheFile = new File("/data/data/com.hellotalk/files/htai_friend_cache.txt");
         promptFile = new File("/data/local/tmp/htai_prompts.txt");
         draftsFile = new File("/data/data/com.hellotalk/files/htai_drafts.json");
 
         loadCache();
+        loadFriendCache();
         loadFriends();
         loadPrompts();
         loadDrafts();
@@ -2739,6 +2745,58 @@ private static String fixUrl(String url) {
         cache.put(key, new String[]{foreign, chinese});
         foreignToChinese.put(foreign, chinese); chineseToForeign.put(chinese, foreign);
         saveCache();
+    }
+
+    private static void loadFriendCache() {
+        if (friendCacheFile == null || !friendCacheFile.exists()) return;
+        try (BufferedReader r = new BufferedReader(new FileReader(friendCacheFile))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] parts = line.split("\\|\\|\\|");
+                if (parts.length >= 3) {
+                    String chatId = parts[0].trim();
+                    String foreign = stripFlipMarks(parts[1]).replace("\\n", "\n");
+                    String chinese = stripFlipMarks(parts[2]).replace("\\n", "\n");
+                    if (chatId.isEmpty() || foreign.isEmpty() || chinese.isEmpty()) continue;
+                    friendReceiveCache.put(chatId + "\u0001" + foreign, chinese);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static void saveFriendCache() {
+        try {
+            if (friendCacheFile == null) return;
+            friendCacheFile.getParentFile().mkdirs();
+            try (BufferedWriter w = new BufferedWriter(new FileWriter(friendCacheFile))) {
+                for (Map.Entry<String, String> e : friendReceiveCache.entrySet()) {
+                    int idx = e.getKey().indexOf('\u0001');
+                    if (idx <= 0) continue;
+                    String chatId = e.getKey().substring(0, idx);
+                    String foreign = e.getKey().substring(idx + 1);
+                    w.write(chatId + "|||" + foreign.replace("\n", "\\n")
+                            + "|||" + e.getValue().replace("\n", "\\n"));
+                    w.newLine();
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public static String getReceivedCached(String chatId, String foreign) {
+        if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equalsIgnoreCase(chatId)) return null;
+        String clean = stripFlipMarks(foreign);
+        if (clean == null || clean.isEmpty()) return null;
+        return friendReceiveCache.get(chatId + "\u0001" + clean);
+    }
+
+    public static void cacheReceived(String chatId, String foreign, String chinese) {
+        if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equalsIgnoreCase(chatId)) return;
+        String f = stripFlipMarks(foreign);
+        String c = stripFlipMarks(chinese);
+        if (f == null || f.isEmpty() || c == null || c.isEmpty() || f.equals(c)) return;
+        friendReceiveCache.put(chatId + "\u0001" + f, c);
+        foreignToChinese.put(f, c); chineseToForeign.put(c, f);
+        saveFriendCache();
     }
 
     public static String getForeignByChinese(String chinese) {

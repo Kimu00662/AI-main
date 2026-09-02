@@ -372,27 +372,42 @@ String out = runRoot(
             runRoot("chmod 666 /data/data/com.hellotalk/files/htai_* 2>/dev/null");
             runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files/htai_* 2>/dev/null");
 
-            // 仅在用户勾选时恢复原生数据库
+            // 仅在用户勾选时恢复原生数据库（带版本校验）
+            String dbMsg = "";
             if (restoreNativeDb) {
-                restoreNativeDbNow();
+                dbMsg = restoreNativeDbNow()
+                        ? "\n官方聊天列表已恢复"
+                        : "\n⚠️ 官方聊天列表未恢复：备份版本与当前版本不一致";
             }
 
             runRoot("echo main > /data/local/tmp/htai_mem_mode.txt && chmod 644 /data/local/tmp/htai_mem_mode.txt");
             runRoot("am force-stop com.hellotalk");
+
+            final String finalDbMsg = dbMsg;
             runOnUiThread(() -> {
                 updateMemStatus("main");
                 refreshDrawerList();
-                Toast.makeText(MainActivity.this, "✅ 主账号记忆已恢复，HelloTalk 已重启", Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, "✅ 主账号记忆已恢复" + finalDbMsg + "，HelloTalk 已重启", Toast.LENGTH_LONG).show();
             });
         }).start();
     }
 
-    private void restoreNativeDbNow() {
+    private boolean restoreNativeDbNow() {
+        String backupVer = runRoot("cat /data/local/tmp/htai_store/htai_db_version.txt 2>/dev/null");
+        String curVer = getHTVersion();
+        if (backupVer == null || backupVer.trim().isEmpty()
+                || curVer == null || curVer.trim().isEmpty()
+                || !backupVer.trim().equals(curVer.trim())) {
+            return false;
+        }
+        runRoot("am force-stop com.hellotalk");
         runRoot("mkdir -p /data/data/com.hellotalk/databases");
         runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/databases 2>/dev/null");
         runRoot("chmod 771 /data/data/com.hellotalk/databases 2>/dev/null");
+        runRoot("rm -f /data/data/com.hellotalk/databases/*-wal /data/data/com.hellotalk/databases/*-shm 2>/dev/null");
         runRoot("cp /data/local/tmp/htai_store/db_backup/* /data/data/com.hellotalk/databases/ 2>/dev/null");
         runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/databases/* 2>/dev/null");
+        return true;
     }
 
     private void claimTemp() {
@@ -418,7 +433,7 @@ String out = runRoot(
                 }, (d, w) -> {
                     if (w == 0) backupNow();
                     else if (w == 1) confirmSwitchToTemp();
-                    else if (w == 2) switchToMain();
+                    else if (w == 2) confirmSwitchToMain();
                     else if (w == 3) showMemoryFiles();
                     else if (w == 4) confirmClearSandbox();
                     else if (w == 5) confirmClearStore();
@@ -486,6 +501,22 @@ String out = runRoot(
     private void backupNativeDb() {
         runRoot("mkdir -p /data/local/tmp/htai_store/db_backup"
                 + " && cp /data/data/com.hellotalk/databases/* /data/local/tmp/htai_store/db_backup/ 2>/dev/null");
+        String ver = getHTVersion();
+        if (ver != null && !ver.isEmpty()) {
+            runRoot("echo '" + ver + "' > /data/local/tmp/htai_store/htai_db_version.txt");
+            runRoot("chmod 600 /data/local/tmp/htai_store/htai_db_version.txt");
+        }
+    }
+
+    private String getHTVersion() {
+        String raw = runRoot("dumpsys package com.hellotalk | grep -m1 versionName");
+        if (raw == null) return "";
+        String v = raw.trim();
+        int idx = v.indexOf("versionName=");
+        if (idx >= 0) {
+            v = v.substring(idx + "versionName=".length()).trim();
+        }
+        return v;
     }
 
     private void confirmSwitchToTemp() {
@@ -530,7 +561,23 @@ String out = runRoot(
         }).start();
     }
 
-    private void switchToMain() {
+    private void confirmSwitchToMain() {
+        CheckBox cb = new CheckBox(this);
+        cb.setText("同时恢复 HelloTalk 官方聊天列表 (⚠️跨版本极易闪退，小白勿选)");
+        cb.setChecked(false);
+        cb.setTextSize(14f);
+        cb.setPadding(0, dpToPx(8), 0, dpToPx(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("切换主账号模式")
+                .setMessage("将把保险箱里的 AI 记忆装回沙箱。")
+                .setView(cb)
+                .setPositiveButton("切换", (d, w) -> switchToMain(cb.isChecked()))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void switchToMain(boolean restoreNativeDb) {
         Toast.makeText(this, "正在切换主账号模式...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             String sandboxLs = runRoot("ls /data/data/com.hellotalk/files/htai_* 2>/dev/null");
@@ -545,14 +592,21 @@ String out = runRoot(
                 runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files/htai_* 2>/dev/null");
             }
 
+            String dbMsg = "";
+            if (restoreNativeDb) {
+                dbMsg = restoreNativeDbNow()
+                        ? "\n官方聊天列表已恢复"
+                        : "\n⚠️ 官方聊天列表未恢复：备份版本与当前版本不一致";
+            }
+
             runRoot("echo main > /data/local/tmp/htai_mem_mode.txt && chmod 644 /data/local/tmp/htai_mem_mode.txt");
             runRoot("am force-stop com.hellotalk");
 
-            final boolean restored = !sandboxHas;
+            final String finalDbMsg = dbMsg;
             runOnUiThread(() -> {
                 updateMemStatus("main");
                 refreshDrawerList();
-                Toast.makeText(MainActivity.this, "👑 已切回主账号模式", Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, "👑 已切回主账号模式" + finalDbMsg, Toast.LENGTH_LONG).show();
             });
         }).start();
     }

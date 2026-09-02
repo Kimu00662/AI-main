@@ -135,7 +135,7 @@ private static class ApiEndpoint {
         if (client == null) {
             client = new OkHttpClient.Builder()
                 .connectTimeout(20, TimeUnit.SECONDS)
-                .readTimeout(50, TimeUnit.SECONDS)
+                .readTimeout(getRequestTimeoutSeconds(), TimeUnit.SECONDS)
                 .writeTimeout(45, TimeUnit.SECONDS)
                 .build();
         }
@@ -293,6 +293,20 @@ public static int getLiveContextMax() {
         }
         if (tokens < 100) tokens = 8000;
         return tokens;
+    }
+
+    public static int getRequestTimeoutSeconds() {
+        int t = readConfigInt("request_timeout", 45);
+        if (t < 10) t = 10;
+        if (t > 300) t = 300;
+        return t;
+    }
+
+    public static int getReceiveTimeoutSeconds() {
+        int t = readConfigInt("receive_timeout", 25);
+        if (t < 10) t = 10;
+        if (t > 300) t = 300;
+        return t;
     }
     public static String getQuickOption(int n) {
         String def = "";
@@ -1156,7 +1170,7 @@ private static OkHttpClient getReceiveClient() {
             if (receiveClient == null) {
                 receiveClient = new OkHttpClient.Builder()
                         .connectTimeout(8, TimeUnit.SECONDS)
-                        .readTimeout(25, TimeUnit.SECONDS)
+                        .readTimeout(getReceiveTimeoutSeconds(), TimeUnit.SECONDS)
                         .writeTimeout(15, TimeUnit.SECONDS)
                         .build();
             }

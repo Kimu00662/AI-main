@@ -32,6 +32,7 @@ public class SettingsActivity extends Activity {
 
     private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat, etBannedWords;
     private EditText etLiveContextMax;
+    private EditText etRequestTimeout, etReceiveTimeout;
     private android.widget.CheckBox cbShowApiSwitchHint;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
@@ -215,6 +216,16 @@ public class SettingsActivity extends Activity {
         etMaxTokens = edit(prefs.getString("max_tokens", "8000"));
         etMaxTokens.setHint("建议设置 2000 到 8000，防止回答被截断");
         advContentLayout.addView(etMaxTokens);
+
+        advContentLayout.addView(lab("点译等待超时 (秒):"));
+        etRequestTimeout = edit(prefs.getString("request_timeout", "45"));
+        etRequestTimeout.setHint("点译后等翻译弹窗的最长秒数，默认45，范围10~300");
+        advContentLayout.addView(etRequestTimeout);
+
+        advContentLayout.addView(lab("对方消息翻译等待超时 (秒):"));
+        etReceiveTimeout = edit(prefs.getString("receive_timeout", "25"));
+        etReceiveTimeout.setHint("对方外语自动翻译的最长等待秒数，默认25，范围10~300");
+        advContentLayout.addView(etReceiveTimeout);
 
         advContentLayout.addView(lab("全局违禁词库 (Banned Words & Symbols):"));
         etBannedWords = bigEdit(prefs.getString("banned_words", ""));
@@ -974,6 +985,20 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         if (maxTokensStr.isEmpty()) maxTokensStr = "8000";
         try { Integer.parseInt(maxTokensStr); } catch (NumberFormatException e) { maxTokensStr = "8000"; }
 
+        String reqTimeoutStr = etRequestTimeout.getText().toString().trim();
+        if (reqTimeoutStr.isEmpty()) reqTimeoutStr = "45";
+        try {
+            int rt = Integer.parseInt(reqTimeoutStr);
+            if (rt < 10 || rt > 300) reqTimeoutStr = "45";
+        } catch (NumberFormatException e) { reqTimeoutStr = "45"; }
+
+        String recvTimeoutStr = etReceiveTimeout.getText().toString().trim();
+        if (recvTimeoutStr.isEmpty()) recvTimeoutStr = "25";
+        try {
+            int rvt = Integer.parseInt(recvTimeoutStr);
+            if (rvt < 10 || rvt > 300) recvTimeoutStr = "25";
+        } catch (NumberFormatException e) { recvTimeoutStr = "25"; }
+
         int selectedPos = spinnerReasoning.getSelectedItemPosition();
         String effortStr = "default";
         if (selectedPos == 1) effortStr = "low";
@@ -1001,6 +1026,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("banned_words", bannedStr);
+        editor.putString("request_timeout", reqTimeoutStr);
+        editor.putString("receive_timeout", recvTimeoutStr);
         editor.putString("prompt_zh", zh);
         editor.putString("prompt_en", en);
         editor.putString("prompt_ru", ru);
@@ -1086,6 +1113,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 
         final String finalTempStr = tempStr;
         final String finalMaxTokensStr = maxTokensStr;
+        final String finalReqTimeoutStr = reqTimeoutStr;
+        final String finalRecvTimeoutStr = recvTimeoutStr;
         final String finalEffortStr = effortStr;
         final String finalMaxChatStr = maxChatStr;
         final String finalLiveContextMaxStr = liveContextMaxStr;
@@ -1106,6 +1135,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                         + "temperature=" + finalTempStr + "\n"
                         + "max_chat_messages=" + finalMaxChatStr + "\n"
                         + "max_tokens=" + finalMaxTokensStr + "\n"
+                        + "request_timeout=" + finalReqTimeoutStr + "\n"
+                        + "receive_timeout=" + finalRecvTimeoutStr + "\n"
                         + "banned_words=" + finalBannedStr + "\n"
                         + "reasoning_effort=" + finalEffortStr + "\n"
                         + "quick_1=" + fq1 + "\n"

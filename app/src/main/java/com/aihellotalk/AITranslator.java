@@ -2557,7 +2557,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
         isReceive = true;
     }
 
-    IOException lastException = null;
+    Exception lastException = null;
     int maxAttempts = endpoints.size() * 2;
     int start = roundRobinIndex;
     ApiEndpoint targetEp = null;
@@ -2634,7 +2634,7 @@ if (forceClient != null) {
                 apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
             }
             return result;
-        } catch (IOException e) {
+        } catch (Exception e) {
             lastException = e;
             String msg = e.getMessage() != null ? e.getMessage() : "";
             Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻5秒並切換下一個: " + msg);
@@ -2642,7 +2642,9 @@ if (forceClient != null) {
             continue; 
         }
     }
-    throw lastException != null ? lastException : new IOException("所有API端點均不可用");
+    if (lastException == null) throw new IOException("所有API端點均不可用");
+    if (lastException instanceof IOException) throw (IOException) lastException;
+    throw new IOException(String.valueOf(lastException));
 }
 
 private static String executeSingleRequest(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {

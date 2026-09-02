@@ -155,7 +155,7 @@ private static class ApiEndpoint {
     void onSuccess() { callCount++; }
 
     void onFailure() {
-        cooldownUntil = System.currentTimeMillis() + 1_000;
+        cooldownUntil = System.currentTimeMillis() + 5_000;
         callCount = 0;
     }
 
@@ -2595,7 +2595,12 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             }
         }
 
-        if (targetEp == null) throw new IOException("当前动作对应的方向找不到可用 API");
+        if (targetEp == null) {
+            if (lastException != null) {
+                break;
+            }
+            throw new IOException("当前动作对应的方向找不到可用 API");
+        }
 
         try {
             String origModel = null;
@@ -2632,16 +2637,9 @@ if (forceClient != null) {
         } catch (IOException e) {
             lastException = e;
             String msg = e.getMessage() != null ? e.getMessage() : "";
-            boolean shouldRetry = msg.contains("429") || msg.contains("500") || msg.contains("502")
-                    || msg.contains("503") || msg.contains("504") || msg.contains("timeout")
-                    || msg.contains("Timeout") || msg.contains("connect") || msg.contains("EOF")
-                    || msg.contains("Socket") || msg.contains("reset");
-            if (shouldRetry) {
-                Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻5秒: " + msg);
-                targetEp.onFailure(); 
-                continue; 
-            }
-            throw e;
+            Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻5秒並切換下一個: " + msg);
+            targetEp.onFailure(); 
+            continue; 
         }
     }
     throw lastException != null ? lastException : new IOException("所有API端點均不可用");

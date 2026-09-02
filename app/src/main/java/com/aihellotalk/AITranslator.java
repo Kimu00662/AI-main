@@ -2079,14 +2079,10 @@ private static boolean isDirtyHistoryContent(String content) {
                 if ("user".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u5bf9\u65b9", content, "\u4e2d\u6587\u610f\u601d")); hasContext = true; }
                 else if ("assistant".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u6211", content, "\u4e2d\u6587\u539f\u610f")); hasContext = true; }
             }
-            String bannedWords = getBannedWords();
-            String bannedRule = bannedWords.isEmpty() ? "" : "3. 【全局黑名单】：绝对禁止在输出中包含以下词汇或符号：" + bannedWords + "。\n";
-
             if (!hasContext) scriptBuilder.append("\uff08\u6682\u65e0\u6709\u6548\u4e0a\u4e0b\u6587\uff09\n");
             scriptBuilder.append("\n\u3010\u7cfb\u7edf\u6307\u4ee4\u3011\n"
                     + "1. 下方只有<<<和>>>标记内的原文才是要翻译的内容，上面对话剧本仅供理解语境参考，严禁翻译或复述剧本里已有的内容。\n"
                     + "2. 【视角隔离】：你是一个客观的翻译引擎。提到任何国家一律直译全称，绝对不许使用“我国”、“国产”、“你们国家”等代词，提到日本时也绝对不要翻译成“这里”或“我们这里”。\n"
-                    + bannedRule
                     + "<<<\n").append(text).append("\n>>>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 

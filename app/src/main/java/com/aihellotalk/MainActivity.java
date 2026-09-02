@@ -614,7 +614,9 @@ String out = runRoot(
     private void showMemoryFiles() {
         new Thread(() -> {
             String marker = runRoot("cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null");
-            String sandbox = runRoot("cp /data/data/com.hellotalk/files/htai_* /data/local/tmp/ 2>/dev/null; ls -la /data/local/tmp/ 2>/dev/null | grep htai");
+            String sandbox = runRoot("rm -rf /data/local/tmp/htai_sandbox_view; mkdir -p /data/local/tmp/htai_sandbox_view; "
+                    + "cp /data/data/com.hellotalk/files/htai_* /data/local/tmp/htai_sandbox_view/ 2>/dev/null; "
+                    + "ls -la /data/local/tmp/htai_sandbox_view/ 2>/dev/null | grep htai");
             String store = runRoot("ls -la /data/local/tmp/htai_store/ 2>/dev/null | grep htai");
 
             StringBuilder sb = new StringBuilder();

@@ -341,27 +341,42 @@ String out = runRoot(
     private void showClaimDialog() {
         if (claimDialogShowing || isFinishing()) return;
         claimDialogShowing = true;
+
+        CheckBox restoreDbBox = new CheckBox(this);
+        restoreDbBox.setText("同时恢复 HelloTalk 官方聊天列表 (⚠️跨版本极易闪退，小白勿选)");
+        restoreDbBox.setChecked(false);
+        restoreDbBox.setTextSize(14f);
+        restoreDbBox.setPadding(0, dpToPx(8), 0, dpToPx(8));
+
         new AlertDialog.Builder(this)
                 .setTitle("这次登录的是谁？")
                 .setMessage("检测到 HelloTalk 数据被清空。\n\n" +
                         "【主账号】把保险箱里的全部记忆装回去\n" +
                         "【一次性】本次瞎聊不备份，清数据后自动烧掉")
-                .setPositiveButton("主账号：恢复记忆", (d, w) -> claimMain())
+                .setView(restoreDbBox)
+                .setPositiveButton("主账号：恢复记忆", (d, w) -> claimMain(restoreDbBox.isChecked()))
                 .setNegativeButton("一次性：不保存", (d, w) -> claimTemp())
                 .setOnDismissListener(d -> claimDialogShowing = false)
                 .setCancelable(true)
                 .show();
     }
 
-    private void claimMain() {
-        Toast.makeText(this, "正在恢复主账号记忆...", Toast.LENGTH_SHORT).show();
+    private void claimMain(boolean restoreNativeDb) {
+        Toast.makeText(this, restoreNativeDb ? "正在恢复主账号记忆及官方聊天列表..." : "正在恢复主账号记忆...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
+            // 无论是否勾选，都必须恢复 AI 核心记忆
             runRoot("mkdir -p /data/data/com.hellotalk/files");
             runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files 2>/dev/null");
             runRoot("chmod 777 /data/data/com.hellotalk/files 2>/dev/null");
             runRoot("cp /data/local/tmp/htai_store/htai_* /data/data/com.hellotalk/files/ 2>/dev/null");
             runRoot("chmod 666 /data/data/com.hellotalk/files/htai_* 2>/dev/null");
             runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files/htai_* 2>/dev/null");
+
+            // 仅在用户勾选时恢复原生数据库
+            if (restoreNativeDb) {
+                restoreNativeDbNow();
+            }
+
             runRoot("echo main > /data/local/tmp/htai_mem_mode.txt && chmod 644 /data/local/tmp/htai_mem_mode.txt");
             runRoot("am force-stop com.hellotalk");
             runOnUiThread(() -> {
@@ -370,6 +385,14 @@ String out = runRoot(
                 Toast.makeText(MainActivity.this, "✅ 主账号记忆已恢复，HelloTalk 已重启", Toast.LENGTH_LONG).show();
             });
         }).start();
+    }
+
+    private void restoreNativeDbNow() {
+        runRoot("mkdir -p /data/data/com.hellotalk/databases");
+        runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/databases 2>/dev/null");
+        runRoot("chmod 771 /data/data/com.hellotalk/databases 2>/dev/null");
+        runRoot("cp /data/local/tmp/htai_store/db_backup/* /data/data/com.hellotalk/databases/ 2>/dev/null");
+        runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/databases/* 2>/dev/null");
     }
 
     private void claimTemp() {
@@ -390,15 +413,33 @@ String out = runRoot(
                         "🕶 切换一次性模式（小号瞎聊用）",
                         "👑 切换主账号模式（恢复记忆）",
                         "🔍 查看记忆文件（诊断）",
-                        "🔥 一键焚毁沙盒（清空当前记忆）"
+                        "🔥 一键焚毁沙盒（清空当前记忆）",
+                        "🗑️ 清空保险箱 (删错号/死机救砖)"
                 }, (d, w) -> {
                     if (w == 0) backupNow();
                     else if (w == 1) confirmSwitchToTemp();
                     else if (w == 2) switchToMain();
                     else if (w == 3) showMemoryFiles();
                     else if (w == 4) confirmClearSandbox();
+                    else if (w == 5) confirmClearStore();
                 })
                 .show();
+    }
+
+    private void confirmClearStore() {
+        new AlertDialog.Builder(this)
+                .setTitle("彻底清空保险箱？")
+                .setMessage("这会删除所有已备份的 AI 记忆和原生数据库，不可逆！")
+                .setPositiveButton("🗑️ 彻底清空", (d, w) -> clearStoreNow())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void clearStoreNow() {
+        new Thread(() -> {
+            runRoot("rm -rf /data/local/tmp/htai_store/*");
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "保险箱已彻底清空", Toast.LENGTH_SHORT).show());
+        }).start();
     }
 
     private void confirmClearSandbox() {
@@ -433,12 +474,18 @@ String out = runRoot(
             runRoot("mkdir -p /data/local/tmp/htai_store"
                     + " && cp /data/data/com.hellotalk/files/htai_* /data/local/tmp/htai_store/ 2>/dev/null; "
                     + "chmod 600 /data/local/tmp/htai_store/htai_* 2>/dev/null");
+            backupNativeDb();
             String storeLs = runRoot("ls /data/local/tmp/htai_store/htai_* 2>/dev/null");
             boolean ok = storeLs != null && !storeLs.trim().isEmpty();
             runOnUiThread(() -> Toast.makeText(MainActivity.this,
                     ok ? "✅ 保险箱已有备份" : "❌ 备份失败",
                     Toast.LENGTH_LONG).show());
         }).start();
+    }
+
+    private void backupNativeDb() {
+        runRoot("mkdir -p /data/local/tmp/htai_store/db_backup"
+                + " && cp /data/data/com.hellotalk/databases/* /data/local/tmp/htai_store/db_backup/ 2>/dev/null");
     }
 
     private void confirmSwitchToTemp() {
@@ -470,6 +517,8 @@ String out = runRoot(
                 }
                 runRoot("rm -f /data/data/com.hellotalk/files/htai_* 2>/dev/null");
             }
+
+            backupNativeDb();
 
             runRoot("echo temp > /data/local/tmp/htai_mem_mode.txt && chmod 644 /data/local/tmp/htai_mem_mode.txt");
             runRoot("am force-stop com.hellotalk");

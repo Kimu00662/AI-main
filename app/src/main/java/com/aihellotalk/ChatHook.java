@@ -719,61 +719,30 @@ if (selectedReplyValid
 // ===== 新版 HelloTalk：直接从新版 HTIMMessage 读取文字 =====
 // 只给 buildNewLiveChatContext() 使用。
 // 不调用旧版通用消息解析器，避免影响旧版 HelloTalk。
-private static String extractNewLiveMessageText(Object msg) {
+private static String extractNewLiveMessageText(Object msg, boolean mine) {
     if (msg == null) return null;
 
     try {
-        // 新版 dex 已确认：
-        // HTIMMessage.M() -> String，返回消息类型
         Object typeObj = XposedHelpers.callMethod(msg, "M");
         String msgType = typeObj != null
                 ? String.valueOf(typeObj)
                 : "";
 
         if ("text".equals(msgType)) {
-
             Class<?> textBeanClass = XposedHelpers.findClassIfExists(
                     "com.hellotalk.talk.detail.delegate.text.IMTextBean",
                     hostClassLoader
             );
-
-            if (textBeanClass == null) {
-                return null;
-            }
-
-            // 新版 dex：
-            // HTIMMessage.B(Class) -> HTIMJsonBean
-            Object bean = XposedHelpers.callMethod(
-                    msg,
-                    "B",
-                    textBeanClass
-            );
-
-            if (bean == null) {
-                return null;
-            }
-
-            // 先读未混淆字段。
+            if (textBeanClass == null) return null;
+            Object bean = XposedHelpers.callMethod(msg, "B", textBeanClass);
+            if (bean == null) return null;
             Object text = readFieldQuiet(bean, "text");
-
+            if (text == null) text = readFieldQuiet(bean, "reportText");
             if (text == null) {
-                text = readFieldQuiet(bean, "reportText");
+                try { text = XposedHelpers.callMethod(bean, "u"); } catch (Throwable ignored) {}
             }
-
-            // 新版 IMTextBean 中存在 u() -> String。
-            // 字段读取失败时用新版 getter 兜底。
-            if (text == null) {
-                try {
-                    text = XposedHelpers.callMethod(bean, "u");
-                } catch (Throwable ignored) {}
-            }
-
-            if (text == null) {
-                return null;
-            }
-
+            if (text == null) return null;
             String result = String.valueOf(text).trim();
-
             return result.isEmpty() ? null : result;
         }
 if ("image".equals(msgType) || "photo".equals(msgType)) {
@@ -783,16 +752,16 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
                 hostClassLoader
         );
         if (imageBeanClass == null) {
-            return "[对方发送了一张图片]";
+            return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
         }
         Object bean = XposedHelpers.callMethod(msg, "B", imageBeanClass);
-String lp = getImageFileForNewMsg(msg);
-if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
-if (lp != null && new File(lp).exists()) {
-    return "[LOCAL_IMAGE:" + lp + "]";
-}
+        String lp = getImageFileForNewMsg(msg);
+        if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
+        if (lp != null && new File(lp).exists()) {
+            return "[LOCAL_IMAGE:" + lp + "]";
+        }
     } catch (Throwable ignored) {}
-    return "[对方发送了一张图片]";
+    return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
 }
         if ("translate".equals(msgType)) {
 
@@ -976,10 +945,7 @@ if (wanted == 0) {
 
             try {
 // ===== 新版专用 =====
-// classes9.dex 已确认 HTIMMessage.Y() -> boolean
-// 这里直接读取，不使用旧版共用的 mIsSender 缓存。
 Object mineObj = null;
-
 try {
     mineObj = XposedHelpers.callMethod(msg, "Y");
 } catch (Throwable ignored) {}
@@ -987,10 +953,7 @@ try {
 boolean mine = mineObj instanceof Boolean
         && ((Boolean) mineObj);
 
-// ===== 新版专用 =====
-// 直接按照新版 HTIMMessage / IMTextBean / IMTranslateBean
-// 的实际 dex 方法读取文字。
-String content = extractNewLiveMessageText(msg);
+String content = extractNewLiveMessageText(msg, mine);
 
                 // 目前实时上下文优先读取真正文字消息。
                 // 图片/语音以后再单独完善，先别影响已有功能。
@@ -1756,7 +1719,7 @@ final String chatId = eid;
                 String mt = (mto != null) ? String.valueOf(mto) : null;
 
                 if (text == null || text.isEmpty()) {
-                    if ("image".equals(mt) || "photo".equals(mt)) text = "[对方发送了一张图片]";
+                    if ("image".equals(mt) || "photo".equals(mt)) text = mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
                     else if ("voice".equals(mt) || "audio".equals(mt)) text = "[对方发送了一条语音]";
                     else if ("video".equals(mt)) text = "[对方发送了一段视频]";
                     else if ("emoji".equals(mt) || "sticker".equals(mt)) text = "[对方发送了一个表情包]";
@@ -2218,6 +2181,22 @@ updateTranslateBtnText(btn);
             else showLanguagePicker(btn, edit);
             return true;
         });
+
+        android.text.InputFilter[] existing = edit.getFilters();
+        android.text.InputFilter[] combined = new android.text.InputFilter[existing.length + 1];
+        System.arraycopy(existing, 0, combined, 0, existing.length);
+        combined[existing.length] = new android.text.InputFilter() {
+            @Override
+            public CharSequence filter(CharSequence source, int start, int end,
+                    android.text.Spanned dest, int dstart, int dend) {
+                if (isTranslatingAPI && source != null && source.toString().contains("@")) {
+                    AITranslator.cancelOngoingTranslation();
+                    return "";
+                }
+                return null;
+            }
+        };
+        edit.setFilters(combined);
 
         final View[] nsb = new View[1];
 

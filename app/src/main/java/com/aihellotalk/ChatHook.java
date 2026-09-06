@@ -1719,7 +1719,7 @@ final String chatId = eid;
                 String mt = (mto != null) ? String.valueOf(mto) : null;
 
                 if (text == null || text.isEmpty()) {
-                    if ("image".equals(mt) || "photo".equals(mt)) text = mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
+                    if ("image".equals(mt) || "photo".equals(mt)) text = isMine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
                     else if ("voice".equals(mt) || "audio".equals(mt)) text = "[对方发送了一条语音]";
                     else if ("video".equals(mt)) text = "[对方发送了一段视频]";
                     else if ("emoji".equals(mt) || "sticker".equals(mt)) text = "[对方发送了一个表情包]";

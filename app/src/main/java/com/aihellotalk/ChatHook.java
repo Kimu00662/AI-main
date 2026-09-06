@@ -1959,6 +1959,16 @@ private static void setBeanField(Object bean, String text) {
         else btn.setText("译·" + ov.toUpperCase());
     }
 
+    private static void emergencyStopTranslation(Button btn) {
+        AITranslator.cancelOngoingTranslation();
+        isTranslatingAPI = false;
+        if (btn != null) {
+            btn.setEnabled(true);
+            updateTranslateBtnText(btn);
+            btn.setAlpha(0.92f);
+        }
+    }
+
     private static void showApiSwitchHint(ViewGroup layout, int index, String model, String url) {
         if (layout == null) return;
         try {
@@ -2190,7 +2200,7 @@ updateTranslateBtnText(btn);
             public CharSequence filter(CharSequence source, int start, int end,
                     android.text.Spanned dest, int dstart, int dend) {
                 if (isTranslatingAPI && source != null && source.toString().contains("@")) {
-                    AITranslator.cancelOngoingTranslation();
+                    emergencyStopTranslation(btn);
                     return "";
                 }
                 return null;
@@ -2242,7 +2252,7 @@ updateTranslateBtnText(btn);
             @Override
             public void onTextChanged(CharSequence s, int st, int b, int c) {
                 if (s != null && s.toString().contains("@")) {
-                    AITranslator.cancelOngoingTranslation();
+                    emergencyStopTranslation(btn);
                     String cl = s.toString().replace("@", "");
                     edit.removeTextChangedListener(this);
                     edit.setText(cl);

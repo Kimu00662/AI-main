@@ -155,7 +155,7 @@ private static class ApiEndpoint {
     void onSuccess() { callCount++; }
 
     void onFailure() {
-        cooldownUntil = System.currentTimeMillis() + 5_000;
+        cooldownUntil = System.currentTimeMillis() + 3_000;
         callCount = 0;
     }
 
@@ -2557,6 +2557,7 @@ private static String executeRequestWith(OkHttpClient useClient, JSONObject body
 }
 
 private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean fallbackIsReceive) throws IOException {
+    if (emergencyStop) throw new IOException("USER_STOPPED");
     if (endpoints.isEmpty()) throw new IOException("沒有配置任何API端點");
 
     // ===== 极其严谨的方向判定 =====
@@ -2645,6 +2646,9 @@ if (forceClient != null) {
             }
             return result;
         } catch (Exception e) {
+            if (emergencyStop) {
+                throw e;
+            }
             lastException = e;
             String msg = e.getMessage() != null ? e.getMessage() : "";
             Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻5秒並切換下一個: " + msg);

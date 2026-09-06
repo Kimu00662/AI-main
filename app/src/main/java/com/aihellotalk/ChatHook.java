@@ -1372,15 +1372,13 @@ if (d != null && !d.equals(s)) {
                         if (cd.getDescription() != null && "HT_AI_Copy".equals(cd.getDescription().getLabel())) {
                             return;
                         }
-                        if (!ts.endsWith(" 🌐") && !ts.endsWith(" 🔄") && !ts.matches(".*[\\u4e00-\\u9fa5]+.*")) {
-                            return;
+                        String orig = AITranslator.getForeignFuzzy(ts);
+                        if (orig == null) {
+                            orig = AITranslator.getForeignByChinese(ts);
                         }
-                        try {
-                            String orig = AITranslator.getForeignFuzzy(ts);
-                            if (orig != null && !orig.trim().isEmpty() && !orig.equals(ts)) {
-                                p.args[0] = ClipData.newPlainText("HT_AI", orig);
-                            }
-                        } catch (Throwable ignored) {}
+                        if (orig != null && !orig.trim().isEmpty() && !orig.equals(ts)) {
+                            p.args[0] = ClipData.newPlainText("HT_AI", orig.trim());
+                        }
                     }
                 }
             }
@@ -1399,32 +1397,33 @@ if (d != null && !d.equals(s)) {
                     protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
                         TextView tv = (TextView) p.thisObject;
                         MotionEvent ev = (MotionEvent) p.args[0];
-                        if (ev == null) return;
-
                         CharSequence cs = tv.getText();
                         if (cs == null) return;
 
                         String s = cs.toString();
-                        if (!s.endsWith(" 🔄") && !s.endsWith(" 🌐")) return;
+                        String reverseMark = " 🔄";
+                        String forwardMark = " 🌐";
+                        String mark = s.endsWith(reverseMark) ? reverseMark : (s.endsWith(forwardMark) ? forwardMark : null);
+                        if (mark == null) return;
 
                         Layout lay = tv.getLayout();
                         if (lay == null) return;
 
                         int line = lay.getLineForVertical((int) ev.getY());
                         int off = lay.getOffsetForHorizontal(line, ev.getX());
-                        if (off < s.length() - 2) return;
+                        if (off < s.length() - mark.length()) return;
 
                         if (ev.getAction() == MotionEvent.ACTION_UP) {
-                            String clean = s.substring(0, s.length() - 2).trim();
-                            if (s.endsWith(" 🔄")) {
+                            String clean = s.substring(0, s.length() - mark.length()).trim();
+                            if (reverseMark.equals(mark)) {
                                 String orig = AITranslator.getForeignByDraftChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignByChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignFuzzy(clean);
-                                if (orig != null && !orig.equals(clean)) tv.setText(orig + " 🌐");
+                                if (orig != null && !orig.equals(clean)) tv.setText(orig + forwardMark);
                             } else {
                                 String zh = AITranslator.getDraftFuzzy(clean);
                                 if (zh == null) zh = AITranslator.getChineseByForeign(clean);
-                                if (zh != null && !zh.equals(clean)) tv.setText(zh + " 🔄");
+                                if (zh != null && !zh.equals(clean)) tv.setText(zh + reverseMark);
                             }
                             p.setResult(true);
                         }

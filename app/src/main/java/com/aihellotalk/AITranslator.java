@@ -2773,6 +2773,8 @@ private static String fixUrl(String url) {
                     String chinese = stripFlipMarks(parts[2]).replace("\\n", "\n");
                     if (chatId.isEmpty() || foreign.isEmpty() || chinese.isEmpty()) continue;
                     friendReceiveCache.put(chatId + "\u0001" + foreign, chinese);
+                    foreignToChinese.put(foreign, chinese);
+                    chineseToForeign.put(chinese, foreign);
                 }
             }
         } catch (Exception ignored) {}
@@ -2817,6 +2819,17 @@ private static String fixUrl(String url) {
         if (chinese == null || chinese.trim().isEmpty()) return null;
         String clean = stripFlipMarks(chinese);
         String exact = chineseToForeign.get(clean); if (exact != null) return exact;
+
+        for (Map.Entry<String, String> entry : friendReceiveCache.entrySet()) {
+            String key = entry.getKey();
+            int separator = key.indexOf('\u0001');
+            if (separator < 0) continue;
+            String foreign = key.substring(separator + 1);
+            String value = stripFlipMarks(entry.getValue());
+            if (clean.equals(value) || clean.contains(value) || value.contains(clean)) {
+                return foreign;
+            }
+        }
         
         for (Map.Entry<String, String> entry : mySentDrafts.entrySet()) {
             String k = stripFlipMarks(entry.getKey()), v = stripFlipMarks(entry.getValue());
@@ -2865,6 +2878,18 @@ private static String fixUrl(String url) {
 
         if (foreignToChinese.containsKey(clean)) return clean;
         if (chineseToForeign.containsKey(clean)) return chineseToForeign.get(clean);
+
+        for (Map.Entry<String, String> entry : friendReceiveCache.entrySet()) {
+            String key = entry.getKey();
+            int separator = key.indexOf('\u0001');
+            if (separator < 0) continue;
+            String foreign = key.substring(separator + 1);
+            String chinese = stripFlipMarks(entry.getValue());
+            if (clean.equals(chinese) || clean.contains(chinese) || chinese.contains(clean)
+                    || clean.equals(foreign) || clean.contains(foreign) || foreign.contains(clean)) {
+                return foreign;
+            }
+        }
         
         return null;
     }

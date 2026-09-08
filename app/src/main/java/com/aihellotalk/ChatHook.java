@@ -1693,21 +1693,8 @@ if (eidInvalid) return;
 
 final String chatId = eid;
 
-                String sn = null;
-                Object sno = invokeQuiet(mGetSenderName, msg);
-                if (sno != null) sn = String.valueOf(sno);
-                if (sn != null && !sn.isEmpty() && !isMine) {
-
-    // 旧版保持原样；新版收到对方消息不创建遥控好友
-    if (!newReplyControllerDetected) {
-        AITranslator.registerFriend(
-                chatId,
-                sn,
-                AITranslator.getFriendLang(chatId),
-                latestNationality
-        );
-    }
-}
+                // 收到对方消息一律不创建遥控好友：
+                // 只有翻译结果真正发送出去以后才创建（新旧版统一）。
                 
 
                 Method gtm = ensureBeanGetText(bean);
@@ -1725,17 +1712,15 @@ final String chatId = eid;
                     else return;
                 }
 
-                if (newReplyControllerDetected
-        && pendingFriendRegister
+                if (pendingFriendRegister
         && isMine
         && text != null
         && AITranslator.mySentDrafts.get(text) != null
         && versionEdit != null
         && versionEdit.getText().toString().trim().isEmpty()) {
 
-    // ===== 新版：只有翻译结果真正发送出去以后才创建遥控好友 =====
-    if (newReplyControllerDetected
-            && chatId != null
+    // ===== 只有翻译结果真正发送出去以后才创建遥控好友 =====
+    if (chatId != null
             && !chatId.trim().isEmpty()
             && !"0".equals(chatId)
             && !"null".equalsIgnoreCase(chatId)) {
@@ -1768,7 +1753,7 @@ final String chatId = eid;
                 latestNationality
         );
 
-        log("新版真实发送翻译消息，创建HT遥控好友: chatId="
+        log("翻译结果已真实发送，创建HT遥控好友: chatId="
                 + chatId
                 + " name="
                 + friendName
@@ -2311,7 +2296,6 @@ updateTranslateBtnText(btn);
             btn.setAlpha(1.0f);
 
             final String cs = cid;
-            final int cts = currentChatType;
             final String pns = currentPartnerName;
             final String nats = latestNationality;
             final int nls = latestNativeLang;
@@ -2516,9 +2500,6 @@ if (newReplyControllerDetected) {
                     } else {
                         String manualLang = chatLangOverride.get(cs);
                         String tl = (manualLang != null && !manualLang.isEmpty()) ? manualLang : determineSmartTargetLang(nats, nls, cs);
-                        if (!newReplyControllerDetected && cts == 1) {
-    AITranslator.registerFriend(cs, pns, tl, nats);
-}
 
                         String lr = chatRequestMap.get(cs);
                         boolean retry = ftt.equals(lr);

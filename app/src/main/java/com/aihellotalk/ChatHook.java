@@ -1307,6 +1307,9 @@ if (d != null && !d.equals(s)) {
     param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
     return;
 }
+// 仅发送（没有任何可接收端点）时，对方消息完全不翻译
+if (!AITranslator.canReceiveAny()) return;
+
 // 对方发的：按好友隔离查缓存，命中替换为中文 + 🔄
 String cidNow = currentChatId;
 if (cidNow != null && !cidNow.trim().isEmpty() && !"0".equals(cidNow) && !"null".equalsIgnoreCase(cidNow)) {

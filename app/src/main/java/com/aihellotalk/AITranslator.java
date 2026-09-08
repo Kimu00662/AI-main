@@ -670,6 +670,15 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
     }
     return null;
 }
+
+    // 是否存在至少一个启用且允许接收的端点（用于“仅发送”时禁止接收翻译）
+    public static boolean canReceiveAny() {
+        for (ApiEndpoint ep : endpoints) {
+            if (ep.enabled && ep.canReceive()) return true;
+        }
+        return false;
+    }
+
     public static void initForFetch(String key, String url) {
         apiKey = key;
         apiUrl = url;

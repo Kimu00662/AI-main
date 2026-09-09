@@ -536,8 +536,24 @@ private static void loadEndpoints() {
         String key = readConfigValue("api_key" + suffix);
         if (key == null || key.isEmpty()) continue;
         String url = readConfigValue("api_url" + suffix);
-        String model = readConfigValue("model" + suffix);
-        if (model == null || model.isEmpty()) continue;
+
+        // 多模型支持：model_list 逗号分隔，最多 6 个，去重
+        List<String> models = new ArrayList<>();
+        String modelList = readConfigValue("model_list" + suffix);
+        if (modelList != null && !modelList.isEmpty()) {
+            for (String m : modelList.split(",")) {
+                String mm = m.trim();
+                if (mm.isEmpty() || models.contains(mm)) continue;
+                models.add(mm);
+                if (models.size() >= 6) break;
+            }
+        }
+        if (models.isEmpty()) {
+            String model = readConfigValue("model" + suffix);
+            if (model == null || model.isEmpty()) continue;
+            models.add(model.trim());
+        }
+
         int weight = readConfigInt("api_weight" + suffix, 3);
         String enabledStr = readConfigValue("api_enabled" + suffix);
 boolean enabled = enabledStr == null || "true".equalsIgnoreCase(enabledStr);
@@ -548,8 +564,12 @@ if (reasoningEffort == null || reasoningEffort.isEmpty()) {
     reasoningEffort = readConfigValue("reasoning_effort"); // 回退到全局
     if (reasoningEffort == null) reasoningEffort = "default";
 }
-        endpoints.add(new ApiEndpoint(key, url, model, weight, enabled, direction, reasoningEffort));
-        Log.i(TAG, "HT_AI 端點[" + i + "]: model=" + model + " 權重=" + weight + " 方向=" + direction);
+
+        int perWeight = Math.max(1, weight / models.size());
+        for (String model : models) {
+            endpoints.add(new ApiEndpoint(key, url, model, perWeight, enabled, direction, reasoningEffort));
+            Log.i(TAG, "HT_AI 端點[" + i + "]: model=" + model + " 權重=" + perWeight + " 方向=" + direction);
+        }
     }
     if (endpoints.isEmpty() && apiKey != null && !apiKey.isEmpty()) {
         endpoints.add(new ApiEndpoint(apiKey, apiUrl, model, 3, true, 0, "default"));

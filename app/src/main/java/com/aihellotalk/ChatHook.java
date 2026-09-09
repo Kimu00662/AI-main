@@ -1307,9 +1307,6 @@ if (d != null && !d.equals(s)) {
     param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
     return;
 }
-// 仅发送（没有任何可接收端点）时，对方消息完全不翻译
-if (!AITranslator.canReceiveAny()) return;
-
 // 对方发的：按好友隔离查缓存，命中替换为中文 + 🔄
 String cidNow = currentChatId;
 if (cidNow != null && !cidNow.trim().isEmpty() && !"0".equals(cidNow) && !"null".equalsIgnoreCase(cidNow)) {
@@ -1321,6 +1318,9 @@ if (d != null && !d.equals(s)) {
     param.args[0] = d + " 🔄";
     return;
 }
+
+// 仅发送（没有任何可接收端点）时：已翻译的中文照常显示，新消息不再调 API 翻译
+if (!AITranslator.canReceiveAny()) return;
 
                 // 缓存没命中，丢后台翻译
                 final String ft = s;

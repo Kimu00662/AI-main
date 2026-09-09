@@ -2622,6 +2622,15 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             throw new IOException("当前动作对应的方向找不到可用 API");
         }
 
+        OkHttpClient useClient;
+if (forceClient != null) {
+    useClient = forceClient;
+} else if (isReceive) {
+    useClient = getReceiveClient();
+} else {
+    useClient = targetEp.ensureClient();
+}
+
         try {
             String origModel = null;
             try {
@@ -2631,18 +2640,11 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                 }
             } catch (JSONException ignored) {}
 
+            try { body.remove("reasoning_effort"); } catch (Throwable ignored) {}
             if (targetEp.supportsReasoningEffort && !"default".equals(targetEp.reasoningEffort)) {
                 try { body.put("reasoning_effort", targetEp.reasoningEffort); } catch (JSONException ignored) {}
             }
 
-            OkHttpClient useClient;
-if (forceClient != null) {
-    useClient = forceClient;
-} else if (isReceive) {
-    useClient = getReceiveClient();
-} else {
-    useClient = targetEp.ensureClient();
-}
             String result = executeSingleRequest(useClient, body, targetEp);
             targetEp.onSuccess(); 
             boolean switched = lastUsedEndpoint != null && lastUsedEndpoint != targetEp;
@@ -2657,6 +2659,26 @@ if (forceClient != null) {
         } catch (Exception e) {
             if (emergencyStop) {
                 throw e;
+            }
+            // 智能降级：带了 reasoning_effort 却返回参数错误(400)时，去掉它再重试一次
+            if (body.has("reasoning_effort")
+                    && e.getMessage() != null
+                    && e.getMessage().contains("400")) {
+                try { body.remove("reasoning_effort"); } catch (Throwable ignored) {}
+                try {
+                    String retryResult = executeSingleRequest(useClient, body, targetEp);
+                    targetEp.onSuccess();
+                    lastUsedEndpoint = targetEp;
+                    Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 去掉思考模式后成功");
+                    return retryResult;
+                } catch (Exception retryEx) {
+                    if (emergencyStop) throw retryEx;
+                    lastException = retryEx;
+                    String retryMsg = retryEx.getMessage() != null ? retryEx.getMessage() : "";
+                    Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 去掉思考模式后仍失敗: " + retryMsg);
+                    targetEp.onFailure();
+                    continue;
+                }
             }
             lastException = e;
             String msg = e.getMessage() != null ? e.getMessage() : "";

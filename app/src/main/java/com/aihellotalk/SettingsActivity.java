@@ -31,6 +31,9 @@ import java.util.concurrent.TimeUnit;
 public class SettingsActivity extends Activity {
 
     private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat, etBannedWords;
+    private EditText etLiveContextMax;
+    private EditText etRequestTimeout, etReceiveTimeout;
+    private android.widget.CheckBox cbShowApiSwitchHint;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
     private EditText etPromptAR, etPromptPT, etPromptFR, etPromptDE, etPromptIT;
@@ -176,7 +179,7 @@ public class SettingsActivity extends Activity {
         // ================= 折叠区 1：高级与安全设置 =================
         LinearLayout advHeaderLayout = createHeaderLayout();
         advHeaderTitle = new TextView(this);
-        boolean isAdvExpanded = prefs.getBoolean("adv_expanded", false);
+        boolean isAdvExpanded = false;
         styleHeaderTitle(advHeaderTitle, isAdvExpanded ? "▼ ⚙️ 高级与安全设置 (点击折叠)" : "▶ ⚙️ 高级与安全设置 (点击展开)");
         advHeaderLayout.addView(advHeaderTitle);
         ll.addView(advHeaderLayout);
@@ -196,10 +199,33 @@ public class SettingsActivity extends Activity {
         etMaxChat.setHint("建议 20~60，越大越慢但记忆越久");
         advContentLayout.addView(etMaxChat);
 
+        advContentLayout.addView(lab("新版实时 UI 上下文条数 (0=关闭, 建议 0~60):"));
+        etLiveContextMax = edit(prefs.getString("live_context_max", "30"));
+        etLiveContextMax.setHint("0=关闭实时UI上下文，越大越慢但语境越全；仅新版 6.4.0 生效");
+        advContentLayout.addView(etLiveContextMax);
+
+        android.widget.LinearLayout hintRow = new android.widget.LinearLayout(this);
+        hintRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        cbShowApiSwitchHint = new android.widget.CheckBox(this);
+        cbShowApiSwitchHint.setText("智能切换 API 时显示提示");
+        cbShowApiSwitchHint.setChecked(prefs.getBoolean("show_api_switch_hint", true));
+        hintRow.addView(cbShowApiSwitchHint);
+        advContentLayout.addView(hintRow);
+
         advContentLayout.addView(lab("最大输出长度 (Max Tokens):"));
         etMaxTokens = edit(prefs.getString("max_tokens", "8000"));
         etMaxTokens.setHint("建议设置 2000 到 8000，防止回答被截断");
         advContentLayout.addView(etMaxTokens);
+
+        advContentLayout.addView(lab("点译等待超时 (秒):"));
+        etRequestTimeout = edit(prefs.getString("request_timeout", "45"));
+        etRequestTimeout.setHint("点译后等翻译弹窗的最长秒数，默认45，范围10~300");
+        advContentLayout.addView(etRequestTimeout);
+
+        advContentLayout.addView(lab("对方消息翻译等待超时 (秒):"));
+        etReceiveTimeout = edit(prefs.getString("receive_timeout", "25"));
+        etReceiveTimeout.setHint("对方外语自动翻译的最长等待秒数，默认25，范围10~300");
+        advContentLayout.addView(etReceiveTimeout);
 
         advContentLayout.addView(lab("全局违禁词库 (Banned Words & Symbols):"));
         etBannedWords = bigEdit(prefs.getString("banned_words", ""));
@@ -212,7 +238,7 @@ public class SettingsActivity extends Activity {
         // ================= 折叠区 1.5：多API智能密钥配置 =================
         LinearLayout apiHeaderLayout = createHeaderLayout();
         TextView apiHeaderTitle = new TextView(this);
-        boolean isApiExpanded = prefs.getBoolean("api_expanded", false);
+        boolean isApiExpanded = false;
         styleHeaderTitle(apiHeaderTitle, isApiExpanded ? "▼ 🔄 多API智能密钥配置（最多8個） (点击折叠)" : "▶ 🔄 多API智能密钥配置（最多8個） (点击展开)");
         apiHeaderLayout.addView(apiHeaderTitle);
         ll.addView(apiHeaderLayout);
@@ -372,7 +398,7 @@ public class SettingsActivity extends Activity {
         // ================= 隐身开关 =================
 LinearLayout stealthHeaderLayout = createHeaderLayout();
 TextView stealthHeaderTitle = new TextView(this);
-boolean isStealthExpanded = prefs.getBoolean("stealth_expanded", false);
+boolean isStealthExpanded = false;
 styleHeaderTitle(stealthHeaderTitle, isStealthExpanded ? "▼ 🕵️ 隐身与反检测 (点击折叠)" : "▶ 🕵️ 隐身与反检测 (点击展开)");
 stealthHeaderLayout.addView(stealthHeaderTitle);
 ll.addView(stealthHeaderLayout);
@@ -419,7 +445,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         // ================= 折叠区 2：语言专属指令 =================
         LinearLayout promptHeaderLayout = createHeaderLayout();
         promptHeaderTitle = new TextView(this);
-        boolean isPromptExpanded = prefs.getBoolean("prompt_expanded", false);
+        boolean isPromptExpanded = false;
         styleHeaderTitle(promptHeaderTitle, isPromptExpanded ? "▼ 🌐 语言专属指令设置 (点击折叠)" : "▶ 🌐 语言专属指令设置 (点击展开)");
         promptHeaderLayout.addView(promptHeaderTitle);
         ll.addView(promptHeaderLayout);
@@ -501,7 +527,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         // ================= 折叠区 3：弹窗快捷选项 =================
         LinearLayout quickHeaderLayout = createHeaderLayout();
         TextView quickHeaderTitle = new TextView(this);
-        boolean isQuickExpanded = prefs.getBoolean("quick_expanded", false);
+        boolean isQuickExpanded = false;
         styleHeaderTitle(quickHeaderTitle, isQuickExpanded ? "▼ ⚡ 弹窗快捷选项 (点击折叠)" : "▶ ⚡ 弹窗快捷选项 (点击展开)");
         quickHeaderLayout.addView(quickHeaderTitle);
         ll.addView(quickHeaderLayout);
@@ -879,7 +905,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("选择模型（最多4个）");
+        builder.setTitle("选择模型（最多6个）");
 
         builder.setMultiChoiceItems(items, checked, (dialog, which, isChecked) -> {
             checked[which] = isChecked;
@@ -898,8 +924,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                 return;
             }
 
-            if (selected.size() > 4) {
-                toast("最多只能选择4个模型");
+            if (selected.size() > 6) {
+                toast("最多只能选6个模型");
                 return;
             }
 
@@ -959,6 +985,20 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         if (maxTokensStr.isEmpty()) maxTokensStr = "8000";
         try { Integer.parseInt(maxTokensStr); } catch (NumberFormatException e) { maxTokensStr = "8000"; }
 
+        String reqTimeoutStr = etRequestTimeout.getText().toString().trim();
+        if (reqTimeoutStr.isEmpty()) reqTimeoutStr = "45";
+        try {
+            int rt = Integer.parseInt(reqTimeoutStr);
+            if (rt < 10 || rt > 300) reqTimeoutStr = "45";
+        } catch (NumberFormatException e) { reqTimeoutStr = "45"; }
+
+        String recvTimeoutStr = etReceiveTimeout.getText().toString().trim();
+        if (recvTimeoutStr.isEmpty()) recvTimeoutStr = "25";
+        try {
+            int rvt = Integer.parseInt(recvTimeoutStr);
+            if (rvt < 10 || rvt > 300) recvTimeoutStr = "25";
+        } catch (NumberFormatException e) { recvTimeoutStr = "25"; }
+
         int selectedPos = spinnerReasoning.getSelectedItemPosition();
         String effortStr = "default";
         if (selectedPos == 1) effortStr = "low";
@@ -980,8 +1020,14 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("model", mdl);
         editor.putString("temperature", tempStr);
         editor.putString("max_chat_messages", maxChatStr);
+        String liveContextMaxStr = etLiveContextMax.getText().toString().trim();
+        if (liveContextMaxStr.isEmpty()) liveContextMaxStr = "30";
+        editor.putString("live_context_max", liveContextMaxStr);
+        editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("banned_words", bannedStr);
+        editor.putString("request_timeout", reqTimeoutStr);
+        editor.putString("receive_timeout", recvTimeoutStr);
         editor.putString("prompt_zh", zh);
         editor.putString("prompt_en", en);
         editor.putString("prompt_ru", ru);
@@ -1067,8 +1113,12 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 
         final String finalTempStr = tempStr;
         final String finalMaxTokensStr = maxTokensStr;
+        final String finalReqTimeoutStr = reqTimeoutStr;
+        final String finalRecvTimeoutStr = recvTimeoutStr;
         final String finalEffortStr = effortStr;
         final String finalMaxChatStr = maxChatStr;
+        final String finalLiveContextMaxStr = liveContextMaxStr;
+        final boolean finalShowApiSwitchHint = cbShowApiSwitchHint.isChecked();
         final String finalBannedStr = bannedStr;
         final String fq1 = q1, fq2 = q2, fq3 = q3, fq4 = q4, fq5 = q5;
         
@@ -1085,6 +1135,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                         + "temperature=" + finalTempStr + "\n"
                         + "max_chat_messages=" + finalMaxChatStr + "\n"
                         + "max_tokens=" + finalMaxTokensStr + "\n"
+                        + "request_timeout=" + finalReqTimeoutStr + "\n"
+                        + "receive_timeout=" + finalRecvTimeoutStr + "\n"
                         + "banned_words=" + finalBannedStr + "\n"
                         + "reasoning_effort=" + finalEffortStr + "\n"
                         + "quick_1=" + fq1 + "\n"
@@ -1143,6 +1195,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 + "reasoning_effort_8=" + prefs.getString("reasoning_effort_8", "default") + "\n"
 + "stealth_hide_read=" + prefs.getBoolean("stealth_hide_read", true) + "\n"
 + "stealth_hide_typing=" + prefs.getBoolean("stealth_hide_typing", true) + "\n"
++ "live_context_max=" + finalLiveContextMaxStr + "\n"
++ "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "EOF\n";
                 runRoot(cfg);
 

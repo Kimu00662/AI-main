@@ -35,6 +35,13 @@ import de.robv.android.xposed.XposedHelpers;
 
 public class ChatHook {
 
+    public interface ApiSwitchListener {
+        void onApiSwitched(int index, String model, String url);
+    }
+
+    private static volatile ApiSwitchListener apiSwitchListener = null;
+    private static volatile View apiSwitchHintView = null;
+
     private static final String TAG = "HT_AI";
     private static final String DEFAULT_REPLY_LANG = "en";
 
@@ -54,6 +61,15 @@ private static volatile Object currentChatDetailFragment = null;
 
     private static final Set<String> translating = ConcurrentHashMap.newKeySet();
     private static final Set<String> recordedMsgIds = ConcurrentHashMap.newKeySet();
+
+    // 记录已经确认由“我”发出的外语消息。
+    private static final Set<String> knownOwnForeignTexts =
+            ConcurrentHashMap.newKeySet();
+
+    // 防止用户连续点击 🌐 时，对同一条外语重复发起多个 API 请求。
+    private static final Set<String> reverseFlipRequests =
+            ConcurrentHashMap.newKeySet();
+
     private static final ConcurrentHashMap<String, String> chatLangOverride = new ConcurrentHashMap<>();
     private static final File LANG_OVERRIDE_FILE =
         new File("/data/data/com.hellotalk/files/htai_lang_override.txt");
@@ -118,6 +134,9 @@ private static void saveLangOverrides() {
 private static volatile String selectedReplySenderName = null;
 private static volatile String selectedReplyChatId = null;
 private static volatile ClassLoader hostClassLoader = null;
+
+// 重试意图：null=首次, "regenerate"=换一批(不满意结果), "fixFormat"=格式修复
+private static volatile String pendingRetryMode = null;
 
 // ===== 新版 HelloTalk：真正的回复控制器 =====
 // m4t = com.hellotalk.talk.detail.controller.TalkDetailReplyController
@@ -709,61 +728,30 @@ if (selectedReplyValid
 // ===== 新版 HelloTalk：直接从新版 HTIMMessage 读取文字 =====
 // 只给 buildNewLiveChatContext() 使用。
 // 不调用旧版通用消息解析器，避免影响旧版 HelloTalk。
-private static String extractNewLiveMessageText(Object msg) {
+private static String extractNewLiveMessageText(Object msg, boolean mine) {
     if (msg == null) return null;
 
     try {
-        // 新版 dex 已确认：
-        // HTIMMessage.M() -> String，返回消息类型
         Object typeObj = XposedHelpers.callMethod(msg, "M");
         String msgType = typeObj != null
                 ? String.valueOf(typeObj)
                 : "";
 
         if ("text".equals(msgType)) {
-
             Class<?> textBeanClass = XposedHelpers.findClassIfExists(
                     "com.hellotalk.talk.detail.delegate.text.IMTextBean",
                     hostClassLoader
             );
-
-            if (textBeanClass == null) {
-                return null;
-            }
-
-            // 新版 dex：
-            // HTIMMessage.B(Class) -> HTIMJsonBean
-            Object bean = XposedHelpers.callMethod(
-                    msg,
-                    "B",
-                    textBeanClass
-            );
-
-            if (bean == null) {
-                return null;
-            }
-
-            // 先读未混淆字段。
+            if (textBeanClass == null) return null;
+            Object bean = XposedHelpers.callMethod(msg, "B", textBeanClass);
+            if (bean == null) return null;
             Object text = readFieldQuiet(bean, "text");
-
+            if (text == null) text = readFieldQuiet(bean, "reportText");
             if (text == null) {
-                text = readFieldQuiet(bean, "reportText");
+                try { text = XposedHelpers.callMethod(bean, "u"); } catch (Throwable ignored) {}
             }
-
-            // 新版 IMTextBean 中存在 u() -> String。
-            // 字段读取失败时用新版 getter 兜底。
-            if (text == null) {
-                try {
-                    text = XposedHelpers.callMethod(bean, "u");
-                } catch (Throwable ignored) {}
-            }
-
-            if (text == null) {
-                return null;
-            }
-
+            if (text == null) return null;
             String result = String.valueOf(text).trim();
-
             return result.isEmpty() ? null : result;
         }
 if ("image".equals(msgType) || "photo".equals(msgType)) {
@@ -773,16 +761,16 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
                 hostClassLoader
         );
         if (imageBeanClass == null) {
-            return "[对方发送了一张图片]";
+            return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
         }
         Object bean = XposedHelpers.callMethod(msg, "B", imageBeanClass);
-String lp = getImageFileForNewMsg(msg);
-if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
-if (lp != null && new File(lp).exists()) {
-    return "[LOCAL_IMAGE:" + lp + "]";
-}
+        String lp = getImageFileForNewMsg(msg);
+        if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
+        if (lp != null && new File(lp).exists()) {
+            return "[LOCAL_IMAGE:" + lp + "]";
+        }
     } catch (Throwable ignored) {}
-    return "[对方发送了一张图片]";
+    return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
 }
         if ("translate".equals(msgType)) {
 
@@ -966,10 +954,7 @@ if (wanted == 0) {
 
             try {
 // ===== 新版专用 =====
-// classes9.dex 已确认 HTIMMessage.Y() -> boolean
-// 这里直接读取，不使用旧版共用的 mIsSender 缓存。
 Object mineObj = null;
-
 try {
     mineObj = XposedHelpers.callMethod(msg, "Y");
 } catch (Throwable ignored) {}
@@ -977,10 +962,7 @@ try {
 boolean mine = mineObj instanceof Boolean
         && ((Boolean) mineObj);
 
-// ===== 新版专用 =====
-// 直接按照新版 HTIMMessage / IMTextBean / IMTranslateBean
-// 的实际 dex 方法读取文字。
-String content = extractNewLiveMessageText(msg);
+String content = extractNewLiveMessageText(msg, mine);
 
                 // 目前实时上下文优先读取真正文字消息。
                 // 图片/语音以后再单独完善，先别影响已有功能。
@@ -1334,29 +1316,53 @@ if (d != null && !d.equals(s)) {
     param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
     return;
 }
-// 对方发的：查 foreignToChinese，命中替换为中文 + 🔄
-d = AITranslator.foreignToChinese.get(s);
+
+// 自己发送的外语但没有本地中文缓存，只在点击 🌐 时调用 API。
+String ownForeignKey = s == null ? "" : s.trim();
+if (!ownForeignKey.isEmpty()
+        && knownOwnForeignTexts.contains(ownForeignKey)) {
+    param.args[0] = new SpannableStringBuilder(cs).append(" 🌐");
+    return;
+}
+
+// 对方发的：按好友隔离查缓存，命中替换为中文 + 🔄
+String cidNow = currentChatId;
+if (cidNow != null && !cidNow.trim().isEmpty() && !"0".equals(cidNow) && !"null".equalsIgnoreCase(cidNow)) {
+    d = AITranslator.getReceivedCached(cidNow, s);
+} else {
+    d = AITranslator.foreignToChinese.get(s);
+}
 if (d != null && !d.equals(s)) {
     param.args[0] = d + " 🔄";
     return;
 }
 
+// 仅发送（没有任何可接收端点）时：已翻译的中文照常显示，新消息不再调 API 翻译
+if (!AITranslator.canReceiveAny()) return;
+
                 // 缓存没命中，丢后台翻译
                 final String ft = s;
+                final String cid = cidNow;
                 final String key = "tv_" + ft;
                 final TextView tv = (TextView) param.thisObject;
                 if (!translating.add(key)) return;
                 reverseTranslateExecutor.execute(() -> {
+                    AITranslator.setCallSource("receive");
                     try {
-                        String t = AITranslator.toChinese(ft, currentChatId);
+                        String t = AITranslator.toChinese(ft, cid);
                         if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
-                            AITranslator.cacheResult(key, ft, t);
+                            if (cid != null && !cid.trim().isEmpty() && !"0".equals(cid) && !"null".equalsIgnoreCase(cid)) {
+                                AITranslator.cacheReceived(cid, ft, t);
+                            } else {
+                                AITranslator.cacheResult(key, ft, t);
+                            }
                             tv.post(() -> {
                                 try { tv.setText(t + " 🔄"); } catch (Throwable ignored) {}
                             });
                         }
                     } catch (Throwable ignored) {
                     } finally {
+                        AITranslator.clearCallSource();
                         translating.remove(key);
                     }
                 });
@@ -1387,15 +1393,13 @@ if (d != null && !d.equals(s)) {
                         if (cd.getDescription() != null && "HT_AI_Copy".equals(cd.getDescription().getLabel())) {
                             return;
                         }
-                        if (!ts.endsWith(" 🌐") && !ts.endsWith(" 🔄") && !ts.matches(".*[\\u4e00-\\u9fa5]+.*")) {
-                            return;
+                        String orig = AITranslator.getForeignFuzzy(ts);
+                        if (orig == null) {
+                            orig = AITranslator.getForeignByChinese(ts);
                         }
-                        try {
-                            String orig = AITranslator.getForeignFuzzy(ts);
-                            if (orig != null && !orig.trim().isEmpty() && !orig.equals(ts)) {
-                                p.args[0] = ClipData.newPlainText("HT_AI", orig);
-                            }
-                        } catch (Throwable ignored) {}
+                        if (orig != null && !orig.trim().isEmpty() && !orig.equals(ts)) {
+                            p.args[0] = ClipData.newPlainText("HT_AI", orig.trim());
+                        }
                     }
                 }
             }
@@ -1414,34 +1418,122 @@ if (d != null && !d.equals(s)) {
                     protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
                         TextView tv = (TextView) p.thisObject;
                         MotionEvent ev = (MotionEvent) p.args[0];
-                        if (ev == null) return;
-
                         CharSequence cs = tv.getText();
                         if (cs == null) return;
 
                         String s = cs.toString();
-                        if (!s.endsWith(" 🔄") && !s.endsWith(" 🌐")) return;
+                        String reverseMark = " 🔄";
+                        String forwardMark = " 🌐";
+                        String mark = s.endsWith(reverseMark) ? reverseMark : (s.endsWith(forwardMark) ? forwardMark : null);
+                        if (mark == null) return;
 
                         Layout lay = tv.getLayout();
                         if (lay == null) return;
 
                         int line = lay.getLineForVertical((int) ev.getY());
                         int off = lay.getOffsetForHorizontal(line, ev.getX());
-                        if (off < s.length() - 2) return;
+                        if (off < s.length() - mark.length()) return;
 
                         if (ev.getAction() == MotionEvent.ACTION_UP) {
-                            String clean = s.substring(0, s.length() - 2).trim();
-                            if (s.endsWith(" 🔄")) {
+                            String clean = s.substring(0, s.length() - mark.length()).trim();
+                            if (reverseMark.equals(mark)) {
                                 String orig = AITranslator.getForeignByDraftChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignByChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignFuzzy(clean);
-                                if (orig != null && !orig.equals(clean)) tv.setText(orig + " 🌐");
+                                if (orig != null && !orig.equals(clean)) tv.setText(orig + forwardMark);
                             } else {
-                                String zh = AITranslator.getDraftFuzzy(clean);
-                                if (zh == null) zh = AITranslator.getChineseByForeign(clean);
-                                if (zh != null && !zh.equals(clean)) tv.setText(zh + " 🔄");
+                                final String foreignText = clean.trim();
+
+                                if (foreignText.isEmpty()) {
+                                    p.setResult(true);
+                                    return;
+                                }
+
+                                String zh = AITranslator.getDraftFuzzy(foreignText);
+                                if (zh == null || zh.trim().isEmpty()) {
+                                    zh = AITranslator.getChineseByForeign(foreignText);
+                                }
+
+                                if (zh != null
+                                        && !zh.trim().isEmpty()
+                                        && !zh.equals(foreignText)) {
+                                    tv.setText(zh.trim() + reverseMark);
+                                    p.setResult(true);
+                                    return;
+                                }
+
+                                if (!reverseFlipRequests.add(foreignText)) {
+                                    Toast.makeText(
+                                            tv.getContext(),
+                                            "正在调用 API 翻译，请稍候",
+                                            Toast.LENGTH_SHORT
+                                    ).show();
+                                    p.setResult(true);
+                                    return;
+                                }
+
+                                tv.setText(foreignText + " ⏳");
+
+                                final TextView targetTv = tv;
+                                final String requestText = foreignText;
+                                final String requestChatId = currentChatId;
+
+                                reverseTranslateExecutor.execute(() -> {
+                                    try {
+                                        String result = AITranslator.reverseTranslateMyForeign(
+                                                requestText,
+                                                requestChatId
+                                        );
+
+                                        if (result != null
+                                                && !result.trim().isEmpty()
+                                                && !result.trim().equals(requestText)) {
+                                            String chinese = result.trim();
+                                            String cacheKey =
+                                                    "reverse_flip_"
+                                                    + Integer.toHexString(requestText.hashCode());
+
+                                            AITranslator.cacheResult(
+                                                    cacheKey,
+                                                    requestText,
+                                                    chinese
+                                            );
+
+                                            targetTv.post(() -> {
+                                                try {
+                                                    targetTv.setText(chinese + reverseMark);
+                                                } catch (Throwable ignored) {}
+                                            });
+                                        } else {
+                                            targetTv.post(() -> {
+                                                try {
+                                                    targetTv.setText(requestText + forwardMark);
+                                                    Toast.makeText(
+                                                            targetTv.getContext(),
+                                                            "API 没有返回有效中文翻译",
+                                                            Toast.LENGTH_SHORT
+                                                    ).show();
+                                                } catch (Throwable ignored) {}
+                                            });
+                                        }
+                                    } catch (Throwable e) {
+                                        targetTv.post(() -> {
+                                            try {
+                                                targetTv.setText(requestText + forwardMark);
+                                                Toast.makeText(
+                                                        targetTv.getContext(),
+                                                        "反向翻译失败，请稍后重试",
+                                                        Toast.LENGTH_SHORT
+                                                ).show();
+                                            } catch (Throwable ignored) {}
+                                        });
+                                    } finally {
+                                        reverseFlipRequests.remove(requestText);
+                                    }
+                                });
+
+                                p.setResult(true);
                             }
-                            p.setResult(true);
                         }
  else if (ev.getAction() == MotionEvent.ACTION_DOWN) {
                             p.setResult(true);
@@ -1709,21 +1801,8 @@ if (eidInvalid) return;
 
 final String chatId = eid;
 
-                String sn = null;
-                Object sno = invokeQuiet(mGetSenderName, msg);
-                if (sno != null) sn = String.valueOf(sno);
-                if (sn != null && !sn.isEmpty() && !isMine) {
-
-    // 旧版保持原样；新版收到对方消息不创建遥控好友
-    if (!newReplyControllerDetected) {
-        AITranslator.registerFriend(
-                chatId,
-                sn,
-                AITranslator.getFriendLang(chatId),
-                latestNationality
-        );
-    }
-}
+                // 收到对方消息一律不创建遥控好友：
+                // 只有翻译结果真正发送出去以后才创建（新旧版统一）。
                 
 
                 Method gtm = ensureBeanGetText(bean);
@@ -1734,24 +1813,22 @@ final String chatId = eid;
                 String mt = (mto != null) ? String.valueOf(mto) : null;
 
                 if (text == null || text.isEmpty()) {
-                    if ("image".equals(mt) || "photo".equals(mt)) text = "[对方发送了一张图片]";
+                    if ("image".equals(mt) || "photo".equals(mt)) text = isMine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
                     else if ("voice".equals(mt) || "audio".equals(mt)) text = "[对方发送了一条语音]";
                     else if ("video".equals(mt)) text = "[对方发送了一段视频]";
                     else if ("emoji".equals(mt) || "sticker".equals(mt)) text = "[对方发送了一个表情包]";
                     else return;
                 }
 
-                if (newReplyControllerDetected
-        && pendingFriendRegister
+                if (pendingFriendRegister
         && isMine
         && text != null
         && AITranslator.mySentDrafts.get(text) != null
         && versionEdit != null
         && versionEdit.getText().toString().trim().isEmpty()) {
 
-    // ===== 新版：只有翻译结果真正发送出去以后才创建遥控好友 =====
-    if (newReplyControllerDetected
-            && chatId != null
+    // ===== 只有翻译结果真正发送出去以后才创建遥控好友 =====
+    if (chatId != null
             && !chatId.trim().isEmpty()
             && !"0".equals(chatId)
             && !"null".equalsIgnoreCase(chatId)) {
@@ -1784,7 +1861,7 @@ final String chatId = eid;
                 latestNationality
         );
 
-        log("新版真实发送翻译消息，创建HT遥控好友: chatId="
+        log("翻译结果已真实发送，创建HT遥控好友: chatId="
                 + chatId
                 + " name="
                 + friendName
@@ -1842,38 +1919,20 @@ if ("chat_user_profile".equals(mid)) {
                 if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 if (isMine) {
-                    // 反向翻译：只查本地缓存，不调API
-                    String d = AITranslator.getDraftFuzzy(text);
-                    if (d == null) d = AITranslator.getChineseByForeign(text);
-                    if (d != null && !d.isEmpty()) {
-                        AITranslator.cacheResult(mid, text, d);
-                        final Object fbk = bean; final String ftk = text;
-                        reverseTranslateExecutor.execute(() -> {
-                            try { Thread.sleep(150); } catch (InterruptedException ignored) {}
-                            try { setBeanField(fbk, ftk); } catch (Exception ignored) {}
-                        });
-                        return;
+                    /*
+                     * 这里已经完成了历史记录写入。
+                     * 自己发送的外语不再在消息内容 Hook 中自动反向翻译，
+                     * 只记录它确实是我发出的外语，点击 🌐 时再按需处理。
+                     */
+                    String ownForeignKey = text == null ? "" : text.trim();
+
+                    if (!ownForeignKey.isEmpty()
+                            && !ownForeignKey.startsWith("[")
+                            && !AITranslator.isChineseOnly(ownForeignKey)
+                            && !AITranslator.containsJapanese(ownForeignKey)) {
+                        knownOwnForeignTexts.add(ownForeignKey);
                     }
-                    // 缓存没有，启动反向翻译 API
-                    final String ft2 = text; final String fc2 = chatId; final String fm2 = mid; final Object fb2 = bean;
-                    if (reverseTranslatedMsgIds.add(fm2)) {
-                        reverseTranslateExecutor.execute(() -> {
-                            try {
-                                String existDraft = AITranslator.getDraftFuzzy(ft2);
-                                if (existDraft != null && !existDraft.isEmpty()) {
-                                    AITranslator.cacheResult(fm2, ft2, existDraft);
-                                    return;
-                                }
-                                String zh = AITranslator.reverseTranslateMyForeign(ft2, fc2);
-                                if (zh != null && !zh.isEmpty()) {
-                                    AITranslator.cacheResult(fm2, ft2, zh);
-                                    AITranslator.rememberDraftIfAbsent(ft2, zh);
-                                    reverseRetryMap.remove(fm2);
-                                    try { setBeanField(fb2, ft2); } catch (Exception ignored) {}
-                                }
-                            } catch (Exception ignored) {}
-                        });
-                    }
+
                     return;
                 }
 
@@ -1972,6 +2031,58 @@ private static void setBeanField(Object bean, String text) {
         String ov = (cid == null) ? null : chatLangOverride.get(cid);
         if (ov == null || ov.isEmpty()) btn.setText("译");
         else btn.setText("译·" + ov.toUpperCase());
+    }
+
+    private static void emergencyStopTranslation(Button btn) {
+        AITranslator.cancelOngoingTranslation();
+        isTranslatingAPI = false;
+        if (btn != null) {
+            btn.setEnabled(true);
+            updateTranslateBtnText(btn);
+            btn.setAlpha(0.92f);
+        }
+    }
+
+    private static void showApiSwitchHint(ViewGroup layout, int index, String model, String url) {
+        if (layout == null) return;
+        try {
+            if (apiSwitchHintView != null && apiSwitchHintView.getParent() != null) {
+                ((ViewGroup) apiSwitchHintView.getParent()).removeView(apiSwitchHintView);
+                apiSwitchHintView = null;
+            }
+            TextView hint = new TextView(layout.getContext());
+            hint.setText("🔄 已切换到 API " + index + "（" + model + "）");
+            hint.setTextSize(12f);
+            hint.setTextColor(Color.parseColor("#FFFFFFFF"));
+            hint.setPadding(12, 8, 12, 8);
+            hint.setBackgroundColor(Color.parseColor("#CC333333"));
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+            lp.leftMargin = 12;
+            lp.topMargin = 8;
+            hint.setLayoutParams(lp);
+            Runnable addViewRunnable = () -> {
+                try {
+                    layout.addView(hint);
+                    apiSwitchHintView = hint;
+                    XposedBridge.log("HT_AI 黑框提示已显示: API=" + index + " model=" + model);
+                    hint.postDelayed(() -> {
+                        if (hint.getParent() != null) {
+                            ((ViewGroup) hint.getParent()).removeView(hint);
+                        }
+                        if (apiSwitchHintView == hint) apiSwitchHintView = null;
+                    }, 8000);
+                } catch (Throwable t) {
+                    XposedBridge.log("HT_AI 黑框提示addView失败: " + t.getMessage());
+                }
+            };
+            if (android.os.Looper.getMainLooper().isCurrentThread()) {
+                addViewRunnable.run();
+            } else {
+                layout.post(addViewRunnable);
+            }
+        } catch (Throwable ignored) {}
     }
 
         private static void showLanguagePicker(Button btn, EditText edit) {
@@ -2155,6 +2266,22 @@ updateTranslateBtnText(btn);
             return true;
         });
 
+        android.text.InputFilter[] existing = edit.getFilters();
+        android.text.InputFilter[] combined = new android.text.InputFilter[existing.length + 1];
+        System.arraycopy(existing, 0, combined, 0, existing.length);
+        combined[existing.length] = new android.text.InputFilter() {
+            @Override
+            public CharSequence filter(CharSequence source, int start, int end,
+                    android.text.Spanned dest, int dstart, int dend) {
+                if (isTranslatingAPI && source != null && source.toString().contains("@")) {
+                    emergencyStopTranslation(btn);
+                    return "";
+                }
+                return null;
+            }
+        };
+        edit.setFilters(combined);
+
         final View[] nsb = new View[1];
 
         Runnable ev = new Runnable() {
@@ -2198,8 +2325,8 @@ updateTranslateBtnText(btn);
 
             @Override
             public void onTextChanged(CharSequence s, int st, int b, int c) {
-                if (s != null && isTranslatingAPI && s.toString().contains("@")) {
-                    AITranslator.cancelOngoingTranslation();
+                if (s != null && s.toString().contains("@")) {
+                    emergencyStopTranslation(btn);
                     String cl = s.toString().replace("@", "");
                     edit.removeTextChangedListener(this);
                     edit.setText(cl);
@@ -2259,7 +2386,6 @@ updateTranslateBtnText(btn);
             btn.setAlpha(1.0f);
 
             final String cs = cid;
-            final int cts = currentChatType;
             final String pns = currentPartnerName;
             final String nats = latestNationality;
             final int nls = latestNativeLang;
@@ -2321,7 +2447,7 @@ if (pbm
         && newReplyControllerDetected) {
 
     pbmLiveContext = buildNewLiveChatContext(
-            AITranslator.getMaxChatMessagesForHook()
+            AITranslator.getLiveContextMax()
     );
 
     if (pbmLiveContext != null && !pbmLiveContext.trim().isEmpty()) {
@@ -2398,7 +2524,7 @@ String liveTranslateContext = null;
 if (!pbm && newReplyControllerDetected) {
 
     liveTranslateContext = buildNewLiveChatContext(
-            AITranslator.getMaxChatMessagesForHook()
+            AITranslator.getLiveContextMax()
     );
 }
             final String ftt = ttt;
@@ -2422,6 +2548,15 @@ if (!pbm && newReplyControllerDetected) {
             }
 
             new Thread(() -> {
+                AITranslator.setCallSource("picker");
+                AITranslator.clearEmergencyStop();
+                String rm = pendingRetryMode;
+                pendingRetryMode = null;
+                if (rm != null) AITranslator.setRetryMode(rm);
+                AITranslator.setApiSwitchListener((index, model, url) -> {
+                    if (layout == null) return;
+                    showApiSwitchHint(layout, index, model, url);
+                });
                 try {
                     if (pbm) {
                         String answer;
@@ -2455,9 +2590,6 @@ if (newReplyControllerDetected) {
                     } else {
                         String manualLang = chatLangOverride.get(cs);
                         String tl = (manualLang != null && !manualLang.isEmpty()) ? manualLang : determineSmartTargetLang(nats, nls, cs);
-                        if (!newReplyControllerDetected && cts == 1) {
-    AITranslator.registerFriend(cs, pns, tl, nats);
-}
 
                         String lr = chatRequestMap.get(cs);
                         boolean retry = ftt.equals(lr);
@@ -2517,14 +2649,22 @@ result = AITranslator.translateForPicker(
                     chatRequestMap.remove(cs);
                     chatRetryCountMap.put(cs, 0);
 
+                    final boolean stopped = AITranslator.isEmergencyStop();
                     edit.post(() -> {
                         btn.setEnabled(true);
                         updateTranslateBtnText(btn);
                         btn.setAlpha(0.88f);
-                        Toast.makeText(edit.getContext(),
-                                "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
-                                Toast.LENGTH_LONG).show();
+                        if (!stopped) {
+                            Toast.makeText(edit.getContext(),
+                                    "⚠️ 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"),
+                                    Toast.LENGTH_LONG).show();
+                        }
                     });
+                } finally {
+                    AITranslator.clearCallSource();
+                    AITranslator.clearEmergencyStop();
+                    AITranslator.clearRetryMode();
+                    AITranslator.setApiSwitchListener(null);
                 }
             }).start();
         });
@@ -2680,7 +2820,10 @@ result = AITranslator.translateForPicker(
             android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
                     .setTitle(refused ? "AI 拒绝或触发安全策略" : "AI 未按格式返回")
                     .setView(sv)
-                    .setPositiveButton("重试", (d, w) -> edit.post(() -> btn.performClick()))
+                    .setPositiveButton("⚠️ 重试", (d, w) -> {
+                        pendingRetryMode = "fixFormat";
+                        edit.post(() -> btn.performClick());
+                    })
                     .setNeutralButton("复制原文", (d, w) -> {
                         try {
                             ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE))
@@ -2761,7 +2904,10 @@ result = AITranslator.translateForPicker(
                 .setTitle(title)
                 .setView(root)
                 .setNegativeButton("取消", (d, w) -> {})
-                .setPositiveButton("🔄 换一批", (d, w) -> edit.post(() -> btn.performClick()))
+                .setPositiveButton("🔄 换一批", (d, w) -> {
+                    pendingRetryMode = "regenerate";
+                    edit.post(() -> btn.performClick());
+                })
                 .create();
 
         for (int idx = 0; idx < items.size(); idx++) {
@@ -3170,6 +3316,14 @@ if (chatIdInvalid) return;
             if (text == null || text.trim().isEmpty()) return;
             text = text.trim();
             if (text.startsWith("[") || AITranslator.isChineseOnly(text)) return;
+
+            // 记录已经确认由我发出的外语消息。
+            if (!text.isEmpty()
+                    && !text.startsWith("[")
+                    && !AITranslator.isChineseOnly(text)
+                    && !AITranslator.containsJapanese(text)) {
+                knownOwnForeignTexts.add(text);
+            }
 
             Object mio = invokeQuiet(mGetMsgId, msg);
             String mid = (mio != null) ? String.valueOf(mio) : null;

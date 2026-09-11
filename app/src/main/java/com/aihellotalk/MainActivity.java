@@ -667,28 +667,36 @@ String out = runRoot(
 
     private void updateModelInConfig(String newModel) {
         new Thread(() -> {
-            String key = prefs.getString("api_key", "");
-            String url = prefs.getString("api_url", "https://api.openai.com/v1/chat/completions");
-            String mList = prefs.getString("model_list", "");
-            String tempStr = prefs.getString("temperature", "0.7");
-            String maxChat = prefs.getString("max_chat_messages", "30");
-            String maxT = prefs.getString("max_tokens", "8000"); 
-            String banned = prefs.getString("banned_words", "");
-            String effort = prefs.getString("reasoning_effort", "default");
+            try {
+                String content = runRoot("cat /data/local/tmp/htai_config.txt 2>/dev/null");
+                StringBuilder updated = new StringBuilder();
+                boolean foundModel = false;
 
-            String cfg = "cat > /data/local/tmp/htai_config.txt << 'EOF'\n"
-                    + "api_key=" + key + "\n"
-                    + "api_url=" + url + "\n"
-                    + "model=" + newModel + "\n"
-                    + "model_list=" + mList + "\n"
-                    + "temperature=" + tempStr + "\n"
-                    + "max_chat_messages=" + maxChat + "\n"
-                    + "max_tokens=" + maxT + "\n"
-                    + "banned_words=" + banned + "\n"
-                    + "reasoning_effort=" + effort + "\n"
-                    + "EOF\n";
-            runRoot(cfg);
-            runRoot("chmod 644 /data/local/tmp/htai_config.txt");
+                if (content != null && !content.trim().isEmpty()) {
+                    for (String line : content.split("\\n", -1)) {
+                        if (line.trim().startsWith("model=")) {
+                            if (!foundModel) {
+                                updated.append("model=").append(newModel).append("\n");
+                                foundModel = true;
+                            }
+                        } else if (!line.isEmpty()) {
+                            updated.append(line).append("\n");
+                        }
+                    }
+                }
+
+                if (!foundModel) {
+                    updated.append("model=").append(newModel).append("\n");
+                }
+
+                File tempFile = new File(getCacheDir(), "htai_config_update.txt");
+                BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
+                w.write(updated.toString());
+                w.close();
+
+                runRoot("cp " + tempFile.getAbsolutePath() + " /data/local/tmp/htai_config.txt");
+                runRoot("chmod 644 /data/local/tmp/htai_config.txt");
+            } catch (Exception ignored) {}
         }).start();
     }
 

@@ -744,7 +744,9 @@ if (selectedReplyValid
 
         String friendName = currentPartnerName;
         if (friendName == null || friendName.trim().isEmpty()) friendName = latestPartnerName;
-        if (friendName == null) friendName = "";
+        if (friendName == null || friendName.trim().isEmpty() || friendName.equals(chatId)) {
+            friendName = "好友 " + chatId;
+        }
 
         String manualLang = chatLangOverride.get(chatId);
         String targetLang = (manualLang != null && !manualLang.isEmpty())
@@ -1890,7 +1892,10 @@ final String chatId = eid;
                 if (isStandaloneAttachmentUrl(text)) return;
 
                 if (pendingFriendRegister && isMine) {
-                    registerPendingFriend(chatId, text);
+                    String registrationChatId = newReplyControllerDetected
+                            ? currentChatId
+                            : chatId;
+                    registerPendingFriend(registrationChatId, text);
                 }
 
                 Object mio = invokeQuiet(mGetMsgId, msg);
@@ -3334,7 +3339,10 @@ if (chatIdInvalid) return;
             if (text.startsWith("[") || isStandaloneAttachmentUrl(text) || AITranslator.isChineseOnly(text)) return;
 
             if (pendingFriendRegister) {
-                registerPendingFriend(chatId, text);
+                String registrationChatId = newReplyControllerDetected
+                        ? currentChatId
+                        : chatId;
+                registerPendingFriend(registrationChatId, text);
             }
 
             // 记录已经确认由我发出的外语消息。

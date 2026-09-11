@@ -722,6 +722,73 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                 + "fi");
     }
 
+    private void rebuildFriendsFromHistory() {
+        try {
+            String friendsText = runRoot("cat /data/data/com.hellotalk/files/htai_friends.json 2>/dev/null");
+            JSONObject friends = (friendsText == null || friendsText.trim().isEmpty())
+                    ? new JSONObject()
+                    : new JSONObject(friendsText);
+
+            String files = runRoot("ls -1 /data/data/com.hellotalk/files/htai_hist_*.json 2>/dev/null");
+            if (files == null || files.trim().isEmpty()) return;
+
+            boolean changed = false;
+            for (String path : files.split("\\n")) {
+                String name = path.trim();
+                String prefix = "/data/data/com.hellotalk/files/htai_hist_";
+                String suffix = ".json";
+                if (!name.startsWith(prefix) || !name.endsWith(suffix)) continue;
+
+                String chatId = name.substring(prefix.length(), name.length() - suffix.length()).trim();
+                if (chatId.isEmpty() || "0".equals(chatId) || !chatId.matches("\\d+")) continue;
+                if (friends.has(chatId)) continue;
+
+                String historyText = runRoot("cat " + name + " 2>/dev/null");
+                if (historyText == null || historyText.trim().isEmpty()) continue;
+
+                JSONArray history;
+                try {
+                    history = new JSONArray(historyText);
+                } catch (Exception ignored) {
+                    continue;
+                }
+
+                boolean hasConversation = false;
+                for (int i = 0; i < history.length(); i++) {
+                    JSONObject message = history.optJSONObject(i);
+                    if (message == null) continue;
+                    String role = message.optString("role", "");
+                    String content = message.optString("content", "").trim();
+                    if (("user".equals(role) || "assistant".equals(role))
+                            && !content.isEmpty()
+                            && !content.matches("\\d{6,}")
+                            && !content.startsWith("[")) {
+                        hasConversation = true;
+                        break;
+                    }
+                }
+                if (!hasConversation) continue;
+
+                JSONObject info = new JSONObject();
+                info.put("name", "好友 " + chatId);
+                info.put("lang", "en");
+                info.put("lastTime", System.currentTimeMillis());
+                friends.put(chatId, info);
+                changed = true;
+            }
+
+            if (!changed) return;
+            File tempFile = new File(getCacheDir(), "htai_friends_rebuild.json");
+            BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
+            w.write(friends.toString());
+            w.close();
+            runRoot("cp " + tempFile.getAbsolutePath() + " /data/data/com.hellotalk/files/htai_friends.json");
+            runRoot("chmod 666 /data/data/com.hellotalk/files/htai_friends.json");
+            runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files/htai_friends.json 2>/dev/null");
+            runRoot("mkdir -p /data/local/tmp/htai_store; cp /data/data/com.hellotalk/files/htai_friends.json /data/local/tmp/htai_store/htai_friends.json 2>/dev/null");
+        } catch (Exception ignored) {}
+    }
+
     private String runRoot(String cmd) {
         try {
             Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
@@ -1231,6 +1298,7 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 
                 runRoot("chmod 644 /data/local/tmp/htai_config.txt /data/local/tmp/htai_prompts.txt");
                 restoreFriendsFromStore();
+                rebuildFriendsFromHistory();
 
                 try {
                     java.lang.reflect.Method m = AITranslator.class.getMethod(

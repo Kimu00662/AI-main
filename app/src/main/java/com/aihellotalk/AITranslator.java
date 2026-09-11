@@ -1535,7 +1535,7 @@ try {
             body.put("temperature", 0.2);
             body.put("messages", messages);
 
-            String result = executeRequestWith(getReverseTranslateClient(), body, false);
+            String result = executeRequestWithEitherDirection(getReverseTranslateClient(), body);
             if (result != null && !result.trim().isEmpty() && !result.trim().equals(foreignText)) {
                 String clean = result.trim();
                 if (clean.length() > 200) clean = clean.substring(0, 200);
@@ -2594,6 +2594,14 @@ private static String executeRequestWith(OkHttpClient useClient, JSONObject body
 
 private static String executeRequestWith(OkHttpClient useClient, JSONObject body, boolean isReceive) throws IOException {
     return executeRequestWithRotation(body, useClient, isReceive);
+}
+
+private static String executeRequestWithEitherDirection(OkHttpClient useClient, JSONObject body) throws IOException {
+    try {
+        return executeRequestWithRotation(body, useClient, true);
+    } catch (IOException receiveError) {
+        return executeRequestWithRotation(body, useClient, false);
+    }
 }
 
 private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {

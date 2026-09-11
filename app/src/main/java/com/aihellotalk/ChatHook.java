@@ -1891,11 +1891,39 @@ final String chatId = eid;
 
                 if (isStandaloneAttachmentUrl(text)) return;
 
-                if (pendingFriendRegister && isMine) {
-                    String registrationChatId = newReplyControllerDetected
-                            ? currentChatId
-                            : chatId;
-                    registerPendingFriend(registrationChatId, text);
+                if (isMine && newReplyControllerDetected) {
+                    String draftChinese = AITranslator.mySentDrafts.get(text);
+                    if (draftChinese != null
+                            && !draftChinese.trim().isEmpty()
+                            && currentChatId != null
+                            && !currentChatId.trim().isEmpty()
+                            && !"0".equals(currentChatId)
+                            && !"null".equalsIgnoreCase(currentChatId)) {
+                        String registrationName = currentPartnerName;
+                        if (registrationName == null || registrationName.trim().isEmpty()) {
+                            registrationName = latestPartnerName;
+                        }
+                        if (registrationName == null || registrationName.trim().isEmpty()
+                                || registrationName.equals(currentChatId)) {
+                            registrationName = "好友 " + currentChatId;
+                        }
+                        String manualLang = chatLangOverride.get(currentChatId);
+                        String targetLang = (manualLang != null && !manualLang.isEmpty())
+                                ? manualLang
+                                : determineSmartTargetLang(latestNationality, latestNativeLang, currentChatId);
+                        AITranslator.registerFriend(currentChatId, registrationName, targetLang, latestNationality);
+                        log("新版通过 mySentDrafts 确认发送结果，创建HT遥控好友: chatId="
+                                + currentChatId + " name=" + registrationName);
+                        pendingFriendRegister = false;
+                        pendingFriendChatId = null;
+                        pendingSelectedForeign = null;
+                        lastPickerResult = null;
+                        lastPickerOrig = null;
+                        lastPickerPns = null;
+                        lastPickerOneTime = false;
+                    }
+                } else if (pendingFriendRegister && isMine) {
+                    registerPendingFriend(chatId, text);
                 }
 
                 Object mio = invokeQuiet(mGetMsgId, msg);

@@ -2045,6 +2045,7 @@ private static void setBeanField(Object bean, String text) {
 
     private static void showApiSwitchHint(ViewGroup layout, int index, String model, String url) {
         if (layout == null) return;
+        if (!AITranslator.readConfigBoolean("show_api_switch_hint", true)) return;
         try {
             if (apiSwitchHintView != null && apiSwitchHintView.getParent() != null) {
                 ((ViewGroup) apiSwitchHintView.getParent()).removeView(apiSwitchHintView);

@@ -155,6 +155,7 @@ private static volatile String pendingSendQuote = null;
 
     private static volatile String pendingSelectedForeign = null;
     private static volatile boolean pendingFriendRegister = false;
+    private static volatile String pendingFriendChatId = null;
     private static volatile String lastPickerResult = null;
     private static volatile String lastPickerOrig = null;
     private static volatile String lastPickerPns = null;
@@ -349,6 +350,20 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    private static boolean isStandaloneAttachmentUrl(String text) {
+        if (text == null) return false;
+        String s = text.trim();
+        if (!(s.startsWith("http://") || s.startsWith("https://"))) return false;
+        String lower = s.toLowerCase();
+        return lower.contains("hellotalk8.com/prod/application/attachment/")
+                || lower.contains("hellotalk.com/prod/application/attachment/")
+                || lower.endsWith(".webp")
+                || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg")
+                || lower.endsWith(".png")
+                || lower.endsWith(".gif");
     }
 
     private static String safeNormalize(String s) {
@@ -714,6 +729,13 @@ if (selectedReplyValid
 }
 
     private static void resetSelectedReply() {
+        pendingFriendRegister = false;
+        pendingFriendChatId = null;
+        pendingSelectedForeign = null;
+        lastPickerResult = null;
+        lastPickerOrig = null;
+        lastPickerPns = null;
+        lastPickerOneTime = false;
         selectedReplyValid = false;
         selectedReplyText = null;
         selectedReplyMsgType = null;
@@ -1498,6 +1520,12 @@ if (!AITranslator.canReceiveAny()) return;
                                                     requestText,
                                                     chinese
                                             );
+                                            if (requestChatId != null
+                                                    && !requestChatId.trim().isEmpty()
+                                                    && !"0".equals(requestChatId)
+                                                    && !"null".equalsIgnoreCase(requestChatId)) {
+                                                AITranslator.cacheReceived(requestChatId, requestText, chinese);
+                                            }
 
                                             targetTv.post(() -> {
                                                 try {
@@ -1820,12 +1848,32 @@ final String chatId = eid;
                     else return;
                 }
 
-                if (pendingFriendRegister
+                if (isStandaloneAttachmentUrl(text)) return;
+
+                boolean isSelectedTranslation = pendingFriendRegister
         && isMine
+        && chatId != null
+        && chatId.equals(pendingFriendChatId)
         && text != null
-        && AITranslator.mySentDrafts.get(text) != null
+        && pendingSelectedForeign != null
+        && pendingSelectedForeign.trim().equals(text.trim())
         && versionEdit != null
-        && versionEdit.getText().toString().trim().isEmpty()) {
+        && versionEdit.getText().toString().trim().isEmpty();
+
+                if (pendingFriendRegister && isMine && !isSelectedTranslation) {
+                    pendingFriendRegister = false;
+                    pendingFriendChatId = null;
+                    pendingSelectedForeign = null;
+                    lastPickerResult = null;
+                    lastPickerOrig = null;
+                    lastPickerPns = null;
+                    lastPickerOneTime = false;
+                    uiHandler.post(() -> {
+                        if (versionButton != null) versionButton.setVisibility(View.GONE);
+                    });
+                }
+
+                if (isSelectedTranslation) {
 
     // ===== 只有翻译结果真正发送出去以后才创建遥控好友 =====
     if (chatId != null
@@ -1870,6 +1918,7 @@ final String chatId = eid;
     }
     
     pendingFriendRegister = false;
+    pendingFriendChatId = null;
 
     pendingSelectedForeign = null;
     lastPickerResult = null;
@@ -1916,6 +1965,7 @@ if ("chat_user_profile".equals(mid)) {
 }
 
                 if (text.startsWith("[")) return;
+                if (isStandaloneAttachmentUrl(text)) return;
                 if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 if (isMine) {
@@ -2978,6 +3028,7 @@ result = AITranslator.translateForPicker(
                 lastPickerOrig = origChinese;
                 lastPickerPns = pn;
                 lastPickerOneTime = oneTime;
+                pendingFriendChatId = currentChatId;
 
                 uiHandler.post(() -> {
                     if (versionButton != null) {
@@ -3316,7 +3367,7 @@ if (chatIdInvalid) return;
 
             if (text == null || text.trim().isEmpty()) return;
             text = text.trim();
-            if (text.startsWith("[") || AITranslator.isChineseOnly(text)) return;
+            if (text.startsWith("[") || isStandaloneAttachmentUrl(text) || AITranslator.isChineseOnly(text)) return;
 
             // 记录已经确认由我发出的外语消息。
             if (!text.isEmpty()

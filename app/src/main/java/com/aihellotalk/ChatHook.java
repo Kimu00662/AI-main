@@ -728,6 +728,45 @@ if (selectedReplyValid
     }
 }
 
+    private static void registerPendingFriend(String chatId, String text) {
+        if (!pendingFriendRegister
+                || chatId == null
+                || chatId.trim().isEmpty()
+                || "0".equals(chatId)
+                || "null".equalsIgnoreCase(chatId)
+                || pendingFriendChatId == null
+                || !chatId.equals(pendingFriendChatId)
+                || text == null
+                || pendingSelectedForeign == null
+                || !pendingSelectedForeign.trim().equals(text.trim())) {
+            return;
+        }
+
+        String friendName = currentPartnerName;
+        if (friendName == null || friendName.trim().isEmpty()) friendName = latestPartnerName;
+        if (friendName == null) friendName = "";
+
+        String manualLang = chatLangOverride.get(chatId);
+        String targetLang = (manualLang != null && !manualLang.isEmpty())
+                ? manualLang
+                : determineSmartTargetLang(latestNationality, latestNativeLang, chatId);
+
+        AITranslator.registerFriend(chatId, friendName, targetLang, latestNationality);
+        log("已确认发送选中的翻译版本，创建HT遥控好友: chatId=" + chatId
+                + " name=" + friendName + " lang=" + targetLang);
+
+        pendingFriendRegister = false;
+        pendingFriendChatId = null;
+        pendingSelectedForeign = null;
+        lastPickerResult = null;
+        lastPickerOrig = null;
+        lastPickerPns = null;
+        lastPickerOneTime = false;
+        uiHandler.post(() -> {
+            if (versionButton != null) versionButton.setVisibility(View.GONE);
+        });
+    }
+
     private static void resetSelectedReply() {
         pendingFriendRegister = false;
         pendingFriendChatId = null;
@@ -1850,85 +1889,10 @@ final String chatId = eid;
 
                 if (isStandaloneAttachmentUrl(text)) return;
 
-                boolean isSelectedTranslation = pendingFriendRegister
-        && isMine
-        && chatId != null
-        && chatId.equals(pendingFriendChatId)
-        && text != null
-        && pendingSelectedForeign != null
-        && pendingSelectedForeign.trim().equals(text.trim())
-        && versionEdit != null
-        && versionEdit.getText().toString().trim().isEmpty();
-
-                if (pendingFriendRegister && isMine && !isSelectedTranslation) {
-                    pendingFriendRegister = false;
-                    pendingFriendChatId = null;
-                    pendingSelectedForeign = null;
-                    lastPickerResult = null;
-                    lastPickerOrig = null;
-                    lastPickerPns = null;
-                    lastPickerOneTime = false;
-                    uiHandler.post(() -> {
-                        if (versionButton != null) versionButton.setVisibility(View.GONE);
-                    });
+                if (pendingFriendRegister && isMine) {
+                    registerPendingFriend(chatId, text);
                 }
 
-                if (isSelectedTranslation) {
-
-    // ===== 只有翻译结果真正发送出去以后才创建遥控好友 =====
-    if (chatId != null
-            && !chatId.trim().isEmpty()
-            && !"0".equals(chatId)
-            && !"null".equalsIgnoreCase(chatId)) {
-
-        String friendName = currentPartnerName;
-
-        if (friendName == null || friendName.trim().isEmpty()) {
-            friendName = latestPartnerName;
-        }
-
-        if (friendName == null) {
-            friendName = "";
-        }
-
-        String manualLang = chatLangOverride.get(chatId);
-
-        String targetLang =
-                (manualLang != null && !manualLang.isEmpty())
-                        ? manualLang
-                        : determineSmartTargetLang(
-                                latestNationality,
-                                latestNativeLang,
-                                chatId
-                        );
-
-        AITranslator.registerFriend(
-                chatId,
-                friendName,
-                targetLang,
-                latestNationality
-        );
-
-        log("翻译结果已真实发送，创建HT遥控好友: chatId="
-                + chatId
-                + " name="
-                + friendName
-                + " lang="
-                + targetLang);
-    }
-    
-    pendingFriendRegister = false;
-    pendingFriendChatId = null;
-
-    pendingSelectedForeign = null;
-    lastPickerResult = null;
-
-    uiHandler.post(() -> {
-        if (versionButton != null) {
-            versionButton.setVisibility(View.GONE);
-        }
-    });
-}
                 Object mio = invokeQuiet(mGetMsgId, msg);
                 String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
 // 新版 HelloTalk 的资料占位消息，不是真实聊天内容
@@ -3368,6 +3332,10 @@ if (chatIdInvalid) return;
             if (text == null || text.trim().isEmpty()) return;
             text = text.trim();
             if (text.startsWith("[") || isStandaloneAttachmentUrl(text) || AITranslator.isChineseOnly(text)) return;
+
+            if (pendingFriendRegister) {
+                registerPendingFriend(chatId, text);
+            }
 
             // 记录已经确认由我发出的外语消息。
             if (!text.isEmpty()

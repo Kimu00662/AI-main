@@ -155,7 +155,7 @@ private static class ApiEndpoint {
     void onSuccess() { callCount++; }
 
     void onFailure() {
-        cooldownUntil = System.currentTimeMillis() + 3_000;
+        cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
         callCount = 0;
     }
 
@@ -172,6 +172,7 @@ public interface ApiSwitchListener {
 private static final List<ApiEndpoint> endpoints = new ArrayList<>();
 private static volatile int roundRobinIndex = 0;
 // ===== 輪換系統結束 =====
+private static final long API_COOLDOWN_MS = 3_000L;
 private static volatile ApiEndpoint lastUsedEndpoint = null;
 private static volatile ApiSwitchListener apiSwitchListener = null;
 private static volatile boolean emergencyStop = false;
@@ -478,7 +479,7 @@ private static String getReasoningEffort() {
             body.put("temperature", 0.2);
             body.put("messages", messages);
 
-            String desc = executeRequestWith(getReverseTranslateClient(), body);
+            String desc = executeRequestWith(getReverseTranslateClient(), body, false);
             if (desc == null) return;
             desc = desc.trim().replaceAll("\\s+", " ").replace("*", "");
             if (desc.isEmpty() || isRefusalResponse(desc)) return;
@@ -578,6 +579,12 @@ private static int readConfigInt(String key, int defaultVal) {
         if (v != null && !v.isEmpty()) return Integer.parseInt(v);
     } catch (Exception ignored) {}
     return defaultVal;
+}
+
+public static boolean readConfigBoolean(String key, boolean defaultVal) {
+    String v = readConfigValue(key);
+    if (v == null || v.isEmpty()) return defaultVal;
+    return "true".equalsIgnoreCase(v);
 }
 
 private static void loadEndpoints() {
@@ -874,7 +881,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             body.put("max_tokens", 1200);
             body.put("temperature", 0.2);
             body.put("messages", messages);
-            return executeRequestWith(getDistillClient(), body);
+            return executeRequestWith(getDistillClient(), body, false);
         } catch (Exception e) { return null; }
     }
 
@@ -1152,7 +1159,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             body.put("temperature", 0.2);
             body.put("messages", messages);
 
-            String result = executeRequestWith(getReverseTranslateClient(), body);
+            String result = executeRequestWith(getReverseTranslateClient(), body, false);
             if (result != null && !result.trim().isEmpty()) {
                 String clean = result.trim();
                 String parenPart = "";
@@ -1528,7 +1535,7 @@ try {
             body.put("temperature", 0.2);
             body.put("messages", messages);
 
-            String result = executeRequestWith(getReverseTranslateClient(), body);
+            String result = executeRequestWith(getReverseTranslateClient(), body, false);
             if (result != null && !result.trim().isEmpty() && !result.trim().equals(foreignText)) {
                 String clean = result.trim();
                 if (clean.length() > 200) clean = clean.substring(0, 200);
@@ -2095,13 +2102,13 @@ private static boolean isDirtyHistoryContent(String content) {
                     + "<<<\n").append(text).append("\n>>>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
-            try { String r = callChatMessages(messages); return refuseGuard(r, text); }
+            try { String r = callChatMessages(messages, true); return refuseGuard(r, text); }
             catch (IOException e) {
                 if (e.getMessage() != null && e.getMessage().contains("400"))
-                    return refuseGuard(fallbackToPureTextRequest(messages), text);
+                    return refuseGuard(fallbackToPureTextRequest(messages, true), text);
                 else throw e;
             }
-        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + "\n\n" + text), text); }
+        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + "\n\n" + text, true), text); }
     }
 
     public static String fromChinese(String text, String lang) throws IOException {
@@ -2494,6 +2501,10 @@ scriptBuilder.append("\n\n<translate>\n")
     }
 
     private static String fallbackToPureTextRequest(JSONArray originalMessages) throws IOException {
+        return fallbackToPureTextRequest(originalMessages, false);
+    }
+
+    private static String fallbackToPureTextRequest(JSONArray originalMessages, boolean isReceive) throws IOException {
         try {
             JSONArray cleanMessages = new JSONArray();
             for (int i = 0; i < originalMessages.length(); i++) {
@@ -2512,12 +2523,16 @@ scriptBuilder.append("\n\n<translate>\n")
                 } else { cleanMsg.put("content", contentObj.toString()); }
                 cleanMessages.put(cleanMsg);
             }
-            return callChatMessages(cleanMessages);
+            return callChatMessages(cleanMessages, isReceive);
         } catch (JSONException e) { throw new IOException("降级解析失败"); }
     }
 
     
             private static String callChatSimple(String prompt) throws IOException {
+    return callChatSimple(prompt, false);
+}
+
+private static String callChatSimple(String prompt, boolean isReceive) throws IOException {
     if (endpoints.isEmpty()) throw new IOException("Key未配置");
     try {
         JSONObject body = new JSONObject();
@@ -2527,11 +2542,15 @@ scriptBuilder.append("\n\n<translate>\n")
         JSONArray msgs = new JSONArray();
         JSONObject m = new JSONObject(); m.put("role", "user"); m.put("content", prompt);
         msgs.put(m); body.put("messages", msgs);
-        return executeRequest(body);
+        return executeRequest(body, isReceive);
     } catch (JSONException e) { throw new IOException("构建失败"); }
 }
 
     private static String callChatMessages(JSONArray messages) throws IOException {
+    return callChatMessages(messages, false);
+}
+
+private static String callChatMessages(JSONArray messages, boolean isReceive) throws IOException {
     if (endpoints.isEmpty()) throw new IOException("Key未配置");
     try {
         JSONObject body = new JSONObject();
@@ -2539,11 +2558,15 @@ scriptBuilder.append("\n\n<translate>\n")
         body.put("max_tokens", getMaxTokens());
         body.put("temperature", getTemperature());
         body.put("messages", messages);
-            return executeRequest(body);
+            return executeRequest(body, isReceive);
         } catch (JSONException e) { throw new IOException("构建失败"); }
     }
     
     private static String callChatMessages(JSONArray messages, int maxTokens) throws IOException {
+    return callChatMessages(messages, maxTokens, false);
+}
+
+private static String callChatMessages(JSONArray messages, int maxTokens, boolean isReceive) throws IOException {
 if (endpoints.isEmpty()) throw new IOException("Key未配置");
 try {
     JSONObject body = new JSONObject();
@@ -2551,39 +2574,39 @@ try {
     body.put("max_tokens", maxTokens);
     body.put("temperature", getTemperature());
     body.put("messages", messages);
-        return executeRequest(body);
+        return executeRequest(body, isReceive);
     } catch (JSONException e) {
         throw new IOException("构建失败");
     }
 }
 
     private static String executeRequest(JSONObject body) throws IOException {
-    return executeRequestWithRotation(body, null, true);
+    return executeRequest(body, false);
+}
+
+private static String executeRequest(JSONObject body, boolean isReceive) throws IOException {
+    return executeRequestWithRotation(body, null, isReceive);
 }
 
 private static String executeRequestWith(OkHttpClient useClient, JSONObject body) throws IOException {
-    return executeRequestWithRotation(body, useClient, true);
+    return executeRequestWith(useClient, body, false);
 }
 
-private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean fallbackIsReceive) throws IOException {
+private static String executeRequestWith(OkHttpClient useClient, JSONObject body, boolean isReceive) throws IOException {
+    return executeRequestWithRotation(body, useClient, isReceive);
+}
+
+private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {
     if (emergencyStop) throw new IOException("USER_STOPPED");
     if (endpoints.isEmpty()) throw new IOException("沒有配置任何API端點");
-
-    // ===== 极其严谨的方向判定 =====
-    boolean isReceive = false; // 默认全是主动发送
-    String bodyStr = body.toString();
-    // 只有绝对匹配到这两句话，才算是“接收对方外语”
-    if (bodyStr.contains("下方只有<<<和>>>标记内") || bodyStr.contains("【表/标点深度分析协议】")) {
-        isReceive = true;
-    }
 
     Exception lastException = null;
     int maxAttempts = endpoints.size() * 2;
     int start = roundRobinIndex;
-    ApiEndpoint targetEp = null;
 
     // 严格轮询：方向不对直接跳过，没得商量
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        ApiEndpoint targetEp = null;
         for (int i = 0; i < endpoints.size(); i++) {
             int idx = (start + i) % endpoints.size();
             ApiEndpoint ep = endpoints.get(idx);
@@ -2660,8 +2683,10 @@ if (forceClient != null) {
             }
             lastException = e;
             String msg = e.getMessage() != null ? e.getMessage() : "";
-            Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻5秒並切換下一個: " + msg);
-            targetEp.onFailure(); 
+            Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻" + (API_COOLDOWN_MS / 1000) + "秒並切換下一個: " + msg);
+            targetEp.onFailure();
+            start = (roundRobinIndex + 1) % endpoints.size();
+            roundRobinIndex = start;
             continue; 
         }
     }

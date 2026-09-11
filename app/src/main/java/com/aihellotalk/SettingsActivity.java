@@ -713,6 +713,15 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         });
     }
 
+    private void restoreFriendsFromStore() {
+        runRoot("if [ ! -s /data/data/com.hellotalk/files/htai_friends.json ] && [ -s /data/local/tmp/htai_store/htai_friends.json ]; then "
+                + "mkdir -p /data/data/com.hellotalk/files; "
+                + "cp /data/local/tmp/htai_store/htai_friends.json /data/data/com.hellotalk/files/htai_friends.json; "
+                + "chmod 666 /data/data/com.hellotalk/files/htai_friends.json; "
+                + "chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files/htai_friends.json 2>/dev/null; "
+                + "fi");
+    }
+
     private String runRoot(String cmd) {
         try {
             Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
@@ -1221,6 +1230,7 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                 runRoot(prompts);
 
                 runRoot("chmod 644 /data/local/tmp/htai_config.txt /data/local/tmp/htai_prompts.txt");
+                restoreFriendsFromStore();
 
                 try {
                     java.lang.reflect.Method m = AITranslator.class.getMethod(

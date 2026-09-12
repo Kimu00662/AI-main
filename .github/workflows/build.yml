@@ -21,15 +21,17 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: 🐘 配置 Gradle 编译环境
+    - name: 🐘 配置 Gradle 8.4 编译环境
       uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.4'
 
     - name: 赋予 gradlew 执行权限 (防错)
       run: chmod +x ./gradlew
       continue-on-error: true
 
     - name: 🚀 开始编译打 debug 包
-      run: ./gradlew assembleDebug || gradle assembleDebug
+      run: gradle --no-daemon assembleDebug
 
     - name: 📦 上传生成的 APK (让你能下载)
       uses: actions/upload-artifact@v4

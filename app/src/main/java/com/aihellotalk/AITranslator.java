@@ -2754,10 +2754,9 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
 
             // 在真正发起请求前就通知 UI：这样无论是主 API、备用 API，还是同一 API 的不同模型，
             // 用户都能看到“这一笔请求到底使用了哪个模型”。
-            // 记录本次真实请求使用的端点。显示层只负责展示，不参与调度，
-            // 因此这里对 API1~API8 完全统一，不区分新旧 HelloTalk。
+            boolean changed = lastUsedEndpoint != targetEp;
             lastUsedEndpoint = targetEp;
-            if (apiSwitchListener != null) {
+            if ("picker".equals(callSource.get()) && apiSwitchListener != null) {
                 apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
             }
 
@@ -2813,28 +2812,15 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             String msg = e.getMessage() != null ? e.getMessage() : "";
             Log.w(TAG, "HT_AI 端点 " + targetEp.model + " 失败，冷却" + (API_COOLDOWN_MS / 1000) + "秒: " + msg);
 
-            int failedCount = failedModels.size();
-            int totalModels = candidates.size();
-            int usedAfterFailure = slotCallCounts.getOrDefault(slotId, 0);
-
-            // 多模型 API：最多连续失败 2 个模型，然后切到下一个 API。
-            // 单模型 API：该模型已经没有可替换的备用模型，第一次失败就立即切到下一个 API。
-            // 该 API 仍保留 3 秒冷却；当其他 API 都不可用时，冷却结束后会再次获得机会。
-            if (totalModels <= 1) {
-                slotModelsUsed.remove(slotId);
-                slotModelsFailed.remove(slotId);
-                slotIndex = (slotIndex + 1) % slotIds.size();
-            } else if (failedCount >= 2) {
-                slotModelsUsed.remove(slotId);
-                slotModelsFailed.remove(slotId);
-                slotIndex = (slotIndex + 1) % slotIds.size();
-            } else if (usedAfterFailure >= slotWeight) {
-                slotModelsUsed.remove(slotId);
-                slotModelsFailed.remove(slotId);
-                slotCallCounts.put(slotId, 0);
-                slotIndex = (slotIndex + 1) % slotIds.size();
-            }
+            // ★ 本次“点译”只允许尝试一次实际请求。
+            // 只要当前 API/模型发生任何错误，立即结束本次翻译，不在后台继续换 API、换模型重试。
+            // 同时把下一次应该从哪里开始记录下来；用户下次重新点“译”时，再由智能调度器继续选择。
+            // 这样错误会直接回到 ChatHook 的失败处理，用户可以看到错误，而不是被静默吞掉。
+            slotModelsUsed.remove(slotId);
+            slotModelsFailed.remove(slotId);
+            slotIndex = (slotIndex + 1) % slotIds.size();
             roundRobinIndex = slotIndex;
+            throw e;
         }
     }
 }

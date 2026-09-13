@@ -2860,6 +2860,9 @@ private static String executeSingleRequest(OkHttpClient useClient, JSONObject bo
                 Log.w(TAG, "HT_AI: API " + ep.slot + " / " + ep.model
                         + " 不支持 reasoning_effort，已静默改用普通请求");
                 return executeSingleRequestOnce(useClient, fallbackBody, ep);
+            } catch (JSONException jsonError) {
+                // 这里属于本地请求体复制失败，不应把 JSONException 泄漏成编译期未声明异常。
+                throw new IOException("思考参数降级请求体构造失败", jsonError);
             } catch (IOException fallbackError) {
                 // 降级后的真实错误才交给上层，用户仍只会看到原有的失败行为。
                 throw fallbackError;

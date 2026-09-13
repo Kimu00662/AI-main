@@ -179,6 +179,7 @@ public interface ApiSwitchListener {
 private static final List<ApiEndpoint> endpoints = new ArrayList<>();
 private static final Map<Integer, Integer> slotCallCounts = new ConcurrentHashMap<>();
 private static final Map<Integer, Set<String>> slotModelsUsed = new ConcurrentHashMap<>();
+private static final Map<Integer, Set<String>> slotModelsFailed = new ConcurrentHashMap<>();
 private static volatile int roundRobinIndex = 0;
 // ===== 輪換系統結束 =====
 private static final long API_COOLDOWN_MS = 3_000L;
@@ -2658,6 +2659,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
         if (!anyWeightAvailable) {
             slotCallCounts.clear();
             slotModelsUsed.clear();
+            slotModelsFailed.clear();
             for (ApiEndpoint ep : endpoints) ep.callCount = 0;
             slotIndex = 0;
             roundRobinIndex = 0;
@@ -2679,6 +2681,12 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
         if (usedModels == null) {
             usedModels = ConcurrentHashMap.newKeySet();
             slotModelsUsed.put(slotId, usedModels);
+        }
+
+        // 一个 API 的多个模型按“权重次数”轮流使用：
+        // 权重 3 + 3 个模型 => 这 3 次尽量各用一次，而不是随机重复同一个模型。
+        if (usedModels.size() >= candidates.size()) {
+            usedModels.clear();
         }
 
         List<ApiEndpoint> usable = new ArrayList<>();
@@ -2724,6 +2732,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
 
             // 开启新一轮模型尝试；失败模型不会被永久拉黑。
             slotModelsUsed.clear();
+            slotModelsFailed.clear();
             for (ApiEndpoint ep : endpoints) {
                 if (ep.cooldownUntil <= System.currentTimeMillis()) ep.cooldownUntil = 0;
             }
@@ -2743,6 +2752,15 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                 try { body.put("reasoning_effort", targetEp.reasoningEffort); } catch (JSONException ignored) {}
             }
 
+            // 在真正发起请求前就通知 UI：这样无论是主 API、备用 API，还是同一 API 的不同模型，
+            // 用户都能看到“这一笔请求到底使用了哪个模型”。
+            // 记录本次真实请求使用的端点。显示层只负责展示，不参与调度，
+            // 因此这里对 API1~API8 完全统一，不区分新旧 HelloTalk。
+            lastUsedEndpoint = targetEp;
+            if (apiSwitchListener != null) {
+                apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
+            }
+
             OkHttpClient useClient;
             if (forceClient != null) useClient = forceClient;
             else if (isReceive) useClient = getReceiveClient();
@@ -2751,22 +2769,26 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             String result = executeSingleRequest(useClient, body, targetEp);
             targetEp.onSuccess();
 
-            // 成功即清除该 API 当前模型失败波次；下一次仍可正常使用。
-            slotModelsUsed.remove(slotId);
+            // 成功：清除“连续失败”记录，但保留本轮已经实际使用过的模型，
+            // 这样同一 API 的多个模型会按权重次数逐个轮换，而不会随机重复。
+            Set<String> failedAfterSuccess = slotModelsFailed.get(slotId);
+            if (failedAfterSuccess != null) failedAfterSuccess.clear();
+            Set<String> usedModelsAfterSuccess = slotModelsUsed.get(slotId);
+            if (usedModelsAfterSuccess == null) {
+                usedModelsAfterSuccess = ConcurrentHashMap.newKeySet();
+                slotModelsUsed.put(slotId, usedModelsAfterSuccess);
+            }
+            usedModelsAfterSuccess.add(targetEp.model);
 
             int used = slotCallCounts.getOrDefault(slotId, 0);
             if (used >= targetEp.weight) {
                 slotCallCounts.put(slotId, 0);
                 slotModelsUsed.remove(slotId);
+                slotModelsFailed.remove(slotId);
                 slotIndex = (slotIndex + 1) % slotIds.size();
             }
             roundRobinIndex = slotIndex;
 
-            boolean switched = lastUsedEndpoint != null && lastUsedEndpoint != targetEp;
-            lastUsedEndpoint = targetEp;
-            if (switched && "picker".equals(callSource.get()) && apiSwitchListener != null) {
-                apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
-            }
             return result;
         } catch (Exception e) {
             if (emergencyStop) throw e;
@@ -2774,12 +2796,19 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             targetEp.onFailure();
 
             // 本轮先跳过刚失败的模型，避免同一模型连续打。
-            Set<String> failedModels = slotModelsUsed.get(slotId);
+            Set<String> failedModels = slotModelsFailed.get(slotId);
             if (failedModels == null) {
                 failedModels = ConcurrentHashMap.newKeySet();
-                slotModelsUsed.put(slotId, failedModels);
+                slotModelsFailed.put(slotId, failedModels);
             }
             failedModels.add(targetEp.model);
+
+            Set<String> usedModelsAfterFailure = slotModelsUsed.get(slotId);
+            if (usedModelsAfterFailure == null) {
+                usedModelsAfterFailure = ConcurrentHashMap.newKeySet();
+                slotModelsUsed.put(slotId, usedModelsAfterFailure);
+            }
+            usedModelsAfterFailure.add(targetEp.model);
 
             String msg = e.getMessage() != null ? e.getMessage() : "";
             Log.w(TAG, "HT_AI 端点 " + targetEp.model + " 失败，冷却" + (API_COOLDOWN_MS / 1000) + "秒: " + msg);
@@ -2793,12 +2822,15 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             // 该 API 仍保留 3 秒冷却；当其他 API 都不可用时，冷却结束后会再次获得机会。
             if (totalModels <= 1) {
                 slotModelsUsed.remove(slotId);
+                slotModelsFailed.remove(slotId);
                 slotIndex = (slotIndex + 1) % slotIds.size();
             } else if (failedCount >= 2) {
                 slotModelsUsed.remove(slotId);
+                slotModelsFailed.remove(slotId);
                 slotIndex = (slotIndex + 1) % slotIds.size();
             } else if (usedAfterFailure >= slotWeight) {
                 slotModelsUsed.remove(slotId);
+                slotModelsFailed.remove(slotId);
                 slotCallCounts.put(slotId, 0);
                 slotIndex = (slotIndex + 1) % slotIds.size();
             }

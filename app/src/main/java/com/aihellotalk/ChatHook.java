@@ -1921,6 +1921,9 @@ final String chatId = eid;
                         lastPickerOrig = null;
                         lastPickerPns = null;
                         lastPickerOneTime = false;
+                        uiHandler.post(() -> {
+                            if (versionButton != null) versionButton.setVisibility(View.GONE);
+                        });
                     }
                 } else if (pendingFriendRegister && isMine) {
                     registerPendingFriend(chatId, text);

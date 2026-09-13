@@ -1026,6 +1026,26 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         builder.show();
     }
 
+    // 手动修改模型输入框后，保持 model 与 model_list 一致。
+    // 如果模型来自“获取模型”的多选结果且第一项仍未改变，则保留完整多模型列表。
+    private void syncManualModelList(SharedPreferences.Editor editor, String suffix, String model) {
+        String normalized = model == null ? "" : model.trim();
+        String key = "model_list" + suffix;
+        String oldList = prefs.getString(key, "");
+        String first = "";
+        if (oldList != null && !oldList.trim().isEmpty()) {
+            String[] parts = oldList.split(",");
+            if (parts.length > 0) first = parts[0].trim();
+        }
+        if (normalized.isEmpty()) {
+            editor.putString(key, "");
+        } else if (normalized.equals(first)) {
+            editor.putString(key, oldList);
+        } else {
+            editor.putString(key, normalized);
+        }
+    }
+
     private void saveAll() {
         btnSave.setEnabled(false);
         btnSave.setText("保存中...");
@@ -1096,6 +1116,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_weight", etWeight1.getText().toString().trim());
         editor.putInt("api_direction", spinnerDir1.getSelectedItemPosition());
         editor.putString("model", mdl);
+        syncManualModelList(editor, "", mdl);
         editor.putString("temperature", tempStr);
         editor.putString("max_chat_messages", maxChatStr);
         String liveContextMaxStr = etLiveContextMax.getText().toString().trim();
@@ -1130,49 +1151,63 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_alias_2", etAlias2.getText().toString().trim());
         editor.putString("api_key_2", etKey2.getText().toString().trim());
         editor.putString("api_url_2", etUrl2.getText().toString().trim());
-        editor.putString("model_2", etModel2.getText().toString().trim());
+        String model2 = etModel2.getText().toString().trim();
+        editor.putString("model_2", model2);
+        syncManualModelList(editor, "_2", model2);
         editor.putString("api_weight_2", etWeight2.getText().toString().trim());
         editor.putInt("api_direction_2", spinnerDir2.getSelectedItemPosition());
         
         editor.putString("api_alias_3", etAlias3.getText().toString().trim());
         editor.putString("api_key_3", etKey3.getText().toString().trim());
         editor.putString("api_url_3", etUrl3.getText().toString().trim());
-        editor.putString("model_3", etModel3.getText().toString().trim());
+        String model3 = etModel3.getText().toString().trim();
+        editor.putString("model_3", model3);
+        syncManualModelList(editor, "_3", model3);
         editor.putString("api_weight_3", etWeight3.getText().toString().trim());
         editor.putInt("api_direction_3", spinnerDir3.getSelectedItemPosition());
         
         editor.putString("api_alias_4", etAlias4.getText().toString().trim());
         editor.putString("api_key_4", etKey4.getText().toString().trim());
         editor.putString("api_url_4", etUrl4.getText().toString().trim());
-        editor.putString("model_4", etModel4.getText().toString().trim());
+        String model4 = etModel4.getText().toString().trim();
+        editor.putString("model_4", model4);
+        syncManualModelList(editor, "_4", model4);
         editor.putString("api_weight_4", etWeight4.getText().toString().trim());
         editor.putInt("api_direction_4", spinnerDir4.getSelectedItemPosition());
         
         editor.putString("api_alias_5", etAlias5.getText().toString().trim());
         editor.putString("api_key_5", etKey5.getText().toString().trim());
         editor.putString("api_url_5", etUrl5.getText().toString().trim());
-        editor.putString("model_5", etModel5.getText().toString().trim());
+        String model5 = etModel5.getText().toString().trim();
+        editor.putString("model_5", model5);
+        syncManualModelList(editor, "_5", model5);
         editor.putString("api_weight_5", etWeight5.getText().toString().trim());
         editor.putInt("api_direction_5", spinnerDir5.getSelectedItemPosition());
 
         editor.putString("api_alias_6", etAlias6.getText().toString().trim());
         editor.putString("api_key_6", etKey6.getText().toString().trim());
         editor.putString("api_url_6", etUrl6.getText().toString().trim());
-        editor.putString("model_6", etModel6.getText().toString().trim());
+        String model6 = etModel6.getText().toString().trim();
+        editor.putString("model_6", model6);
+        syncManualModelList(editor, "_6", model6);
         editor.putString("api_weight_6", etWeight6.getText().toString().trim());
         editor.putInt("api_direction_6", spinnerDir6.getSelectedItemPosition());
 
         editor.putString("api_alias_7", etAlias7.getText().toString().trim());
         editor.putString("api_key_7", etKey7.getText().toString().trim());
         editor.putString("api_url_7", etUrl7.getText().toString().trim());
-        editor.putString("model_7", etModel7.getText().toString().trim());
+        String model7 = etModel7.getText().toString().trim();
+        editor.putString("model_7", model7);
+        syncManualModelList(editor, "_7", model7);
         editor.putString("api_weight_7", etWeight7.getText().toString().trim());
         editor.putInt("api_direction_7", spinnerDir7.getSelectedItemPosition());
 
         editor.putString("api_alias_8", etAlias8.getText().toString().trim());
         editor.putString("api_key_8", etKey8.getText().toString().trim());
         editor.putString("api_url_8", etUrl8.getText().toString().trim());
-        editor.putString("model_8", etModel8.getText().toString().trim());
+        String model8 = etModel8.getText().toString().trim();
+        editor.putString("model_8", model8);
+        syncManualModelList(editor, "_8", model8);
         editor.putString("api_weight_8", etWeight8.getText().toString().trim());
         editor.putInt("api_direction_8", spinnerDir8.getSelectedItemPosition());
         

@@ -2713,7 +2713,10 @@ result = AITranslator.translateForPicker(
                     AITranslator.clearCallSource();
                     AITranslator.clearEmergencyStop();
                     AITranslator.clearRetryMode();
-                    AITranslator.setApiSwitchListener(null);
+                    // 不要在这里清空全局 apiSwitchListener。
+                    // 多次快速点“译”时，上一笔请求的 finally 可能晚于下一笔请求，
+                    // 从而把下一笔刚设置好的监听器误清掉，导致第二次点译不显示 API/模型。
+                    // 下一次点“译”会重新绑定当前页面的监听器。
                 }
             }).start();
         });

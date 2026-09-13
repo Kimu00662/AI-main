@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -2787,8 +2788,17 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                     body.put("model", targetEp.model);
                 }
             } catch (JSONException ignored) {}
-            if (targetEp.supportsReasoningEffort && !"default".equals(targetEp.reasoningEffort)) {
-                try { body.put("reasoning_effort", targetEp.reasoningEffort); } catch (JSONException ignored) {}
+            // ===== 思考模式适配 =====
+            // 官方 Gemini 的 OpenAI 兼容接口会把 reasoning_effort 自动映射到
+            // Gemini 2.5 的 thinking_budget / Gemini 3.x 的 thinking_level。
+            // 第三方 v1 中转也先按 OpenAI 兼容协议尝试；如果明确表示不支持思考参数，
+            // executeSingleRequest() 会在同一次逻辑请求内静默去掉参数再请求一次。
+            if (!"default".equals(targetEp.reasoningEffort)) {
+                try { body.put("reasoning_effort", normalizeReasoningEffort(targetEp.reasoningEffort)); }
+                catch (JSONException ignored) {}
+            } else {
+                // 防止复用 JSONObject 时把上一次 API 的思考参数带给“默认”API。
+                try { body.remove("reasoning_effort"); } catch (Exception ignored) {}
             }
 
             // 点译在真正发请求前显示本次实际选中的 API + 模型。
@@ -2836,6 +2846,30 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
 }
 
 private static String executeSingleRequest(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {
+    // 第一尝试：按当前 API 的思考模式发送。
+    try {
+        return executeSingleRequestOnce(useClient, body, ep);
+    } catch (IOException firstError) {
+        // 思考参数是“增强项”，第三方中转不认识时不能让用户看到报错。
+        // 只有明确像“参数不支持/未知参数”的 400/422 才静默降级，普通鉴权、额度、
+        // 模型不存在、网络错误等仍按原来的失败流程处理。
+        if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
+            try {
+                JSONObject fallbackBody = new JSONObject(body.toString());
+                fallbackBody.remove("reasoning_effort");
+                Log.w(TAG, "HT_AI: API " + ep.slot + " / " + ep.model
+                        + " 不支持 reasoning_effort，已静默改用普通请求");
+                return executeSingleRequestOnce(useClient, fallbackBody, ep);
+            } catch (IOException fallbackError) {
+                // 降级后的真实错误才交给上层，用户仍只会看到原有的失败行为。
+                throw fallbackError;
+            }
+        }
+        throw firstError;
+    }
+}
+
+private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {
     Request req = new Request.Builder()
             .url(fixUrl(ep.url))
             .header("Authorization", "Bearer " + ep.key)
@@ -2855,6 +2889,43 @@ private static String executeSingleRequest(OkHttpClient useClient, JSONObject bo
         } catch (IOException e) { throw e; }
         catch (Exception e) { throw new IOException("JSON解析失败：" + responseBody); }
     }
+}
+
+private static String normalizeReasoningEffort(String effort) {
+    if (effort == null) return "default";
+    String v = effort.trim().toLowerCase(Locale.ROOT);
+    if ("minimal".equals(v)) return "minimal";
+    if ("low".equals(v)) return "low";
+    if ("medium".equals(v)) return "medium";
+    if ("high".equals(v)) return "high";
+    return "default";
+}
+
+private static boolean isThinkingParameterUnsupported(String message) {
+    if (message == null) return false;
+    String s = message.toLowerCase(Locale.ROOT);
+    boolean statusLooksLikeParamError = s.contains("http 400") || s.contains("http 422")
+            || s.contains("bad request") || s.contains("unprocessable entity");
+    if (!statusLooksLikeParamError) return false;
+
+    // 只匹配明确指向思考/推理参数的错误，避免把普通 400 错误误判成“思考参数不支持”。
+    boolean mentionsThinkingParam =
+            s.contains("reasoning_effort") ||
+            s.contains("reasoning effort") ||
+            s.contains("thinking_level") ||
+            s.contains("thinkinglevel") ||
+            s.contains("thinking_budget") ||
+            s.contains("thinkingbudget") ||
+            s.contains("thinkingconfig") ||
+            s.contains("thinking config");
+    if (!mentionsThinkingParam) return false;
+
+    return s.contains("unsupported") || s.contains("unknown") || s.contains("unrecognized")
+            || s.contains("not allowed") || s.contains("not supported") || s.contains("invalid parameter")
+            || s.contains("invalid argument") || s.contains("extra inputs") || s.contains("additional properties")
+            || s.contains("unknown field") || s.contains("unknown parameter") || s.contains("unexpected field")
+            || s.contains("unexpected parameter") || s.contains("extra field") || s.contains("extra parameter")
+            || s.contains("cannot be used") || s.contains("not permitted");
 }
 
 private static String fixUrl(String url) {

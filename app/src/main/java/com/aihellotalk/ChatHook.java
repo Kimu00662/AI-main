@@ -2099,7 +2099,8 @@ private static void setBeanField(Object bean, String text) {
                 apiSwitchHintView = null;
             }
             TextView hint = new TextView(layout.getContext());
-            hint.setText("🔄 已切换到 API " + index + "（" + model + "）");
+            String apiName = (index == 1 ? "主 API" : "备用 API " + index);
+            hint.setText("🔄 当前使用：" + apiName + "（" + model + "）");
             hint.setTextSize(12f);
             hint.setTextColor(Color.parseColor("#FFFFFFFF"));
             hint.setPadding(12, 8, 12, 8);

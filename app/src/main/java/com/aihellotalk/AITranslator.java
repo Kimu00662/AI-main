@@ -2789,8 +2789,12 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             int usedAfterFailure = slotCallCounts.getOrDefault(slotId, 0);
 
             // 多模型 API：最多连续失败 2 个模型，然后切到下一个 API。
-            // 单模型 API：不永久放弃，只按 3 秒冷却后继续重试。
-            if (totalModels > 1 && failedCount >= 2) {
+            // 单模型 API：该模型已经没有可替换的备用模型，第一次失败就立即切到下一个 API。
+            // 该 API 仍保留 3 秒冷却；当其他 API 都不可用时，冷却结束后会再次获得机会。
+            if (totalModels <= 1) {
+                slotModelsUsed.remove(slotId);
+                slotIndex = (slotIndex + 1) % slotIds.size();
+            } else if (failedCount >= 2) {
                 slotModelsUsed.remove(slotId);
                 slotIndex = (slotIndex + 1) % slotIds.size();
             } else if (usedAfterFailure >= slotWeight) {

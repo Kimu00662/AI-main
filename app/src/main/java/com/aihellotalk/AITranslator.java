@@ -2644,19 +2644,25 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
         if (emergencyStop) throw new IOException("USER_STOPPED");
         if (slotIndex >= slotIds.size()) slotIndex = 0;
 
-        // 当前轮所有适用 API 的权重都用完：清空轮次，重新开始。
+        // 当前轮结束必须同时满足：所有适用 API 权重都用完，且没有 API 仍在冷却。
+        // 冷却期间绝不能提前清空权重，否则会让“权重 1”的其它 API 被反复使用。
         boolean anyWeightAvailable = false;
+        boolean anyApplicableCooldown = false;
+        long now = System.currentTimeMillis();
         for (Integer sid : slotIds) {
             List<ApiEndpoint> list = slots.get(sid);
-            if (list != null && !list.isEmpty()) {
-                int weight = list.get(0).weight;
-                if (slotCallCounts.getOrDefault(sid, 0) < weight) {
-                    anyWeightAvailable = true;
+            if (list == null || list.isEmpty()) continue;
+            int weight = list.get(0).weight;
+            if (slotCallCounts.getOrDefault(sid, 0) < weight) anyWeightAvailable = true;
+            for (ApiEndpoint ep : list) {
+                if (ep.cooldownUntil > now) {
+                    anyApplicableCooldown = true;
                     break;
                 }
             }
         }
-        if (!anyWeightAvailable) {
+        if (!anyWeightAvailable && !anyApplicableCooldown) {
+            // 真正完成一整轮后才重置权重。
             slotCallCounts.clear();
             slotModelsUsed.clear();
             slotModelsFailed.clear();

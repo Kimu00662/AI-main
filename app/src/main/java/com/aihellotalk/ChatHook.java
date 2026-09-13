@@ -2094,43 +2094,78 @@ private static void setBeanField(Object bean, String text) {
         if (layout == null) return;
         if (!AITranslator.readConfigBoolean("show_api_switch_hint", true)) return;
         try {
-            if (apiSwitchHintView != null && apiSwitchHintView.getParent() != null) {
-                ((ViewGroup) apiSwitchHintView.getParent()).removeView(apiSwitchHintView);
-                apiSwitchHintView = null;
-            }
-            TextView hint = new TextView(layout.getContext());
-            String apiName = (index == 1 ? "主 API" : "备用 API " + index);
-            hint.setText("🔄 当前使用：" + apiName + "（" + model + "）");
-            hint.setTextSize(12f);
-            hint.setTextColor(Color.parseColor("#FFFFFFFF"));
-            hint.setPadding(12, 8, 12, 8);
-            hint.setBackgroundColor(Color.parseColor("#CC333333"));
-            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
-            lp.leftMargin = 12;
-            lp.topMargin = 8;
-            hint.setLayoutParams(lp);
-            Runnable addViewRunnable = () -> {
+            final String text = "🔄 当前使用：" + (index == 1 ? "主 API" : "备用 API " + index)
+                    + "（" + model + "）";
+
+            // 不再依赖 layout.post()。某些情况下提示框刚好消失时，原来的
+            // ViewGroup 的消息队列/附着状态会让下一次 addView 丢掉。
+            // 统一切到主线程，并优先使用当前 layout；如果它已经脱离窗口，
+            // 再尝试当前根 View，确保连续点击时提示不会“失踪”。
+            uiHandler.post(() -> {
                 try {
-                    layout.addView(hint);
+                    ViewGroup host = layout;
+                    if (!host.isAttachedToWindow()) {
+                        View root = host.getRootView();
+                        if (root instanceof ViewGroup && root.isAttachedToWindow()) {
+                            host = (ViewGroup) root;
+                        }
+                    }
+
+                    // 旧提示无论是否已经自动消失，都安全清理引用和父容器。
+                    View old = apiSwitchHintView;
+                    apiSwitchHintView = null;
+                    if (old != null && old.getParent() instanceof ViewGroup) {
+                        try {
+                            ((ViewGroup) old.getParent()).removeView(old);
+                        } catch (Throwable ignored) {}
+                    }
+
+                    TextView hint = new TextView(host.getContext());
+                    hint.setText(text);
+                    hint.setTextSize(12f);
+                    hint.setTextColor(Color.parseColor("#FFFFFFFF"));
+                    hint.setPadding(12, 8, 12, 8);
+                    hint.setBackgroundColor(Color.parseColor("#CC333333"));
+
+                    android.widget.FrameLayout.LayoutParams lp =
+                            new android.widget.FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT);
+                    lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+                    lp.leftMargin = 12;
+                    lp.topMargin = 8;
+                    hint.setLayoutParams(lp);
+
+                    try {
+                        host.addView(hint);
+                    } catch (Throwable firstAddFail) {
+                        // 当前宿主如果不能直接接收子 View，再退回它的根 View。
+                        View root = host.getRootView();
+                        if (!(root instanceof ViewGroup) || root == host) throw firstAddFail;
+                        host = (ViewGroup) root;
+                        host.addView(hint);
+                    }
+
                     apiSwitchHintView = hint;
                     XposedBridge.log("HT_AI 黑框提示已显示: API=" + index + " model=" + model);
+
+                    final View finalHint = hint;
                     hint.postDelayed(() -> {
-                        if (hint.getParent() != null) {
-                            ((ViewGroup) hint.getParent()).removeView(hint);
-                        }
-                        if (apiSwitchHintView == hint) apiSwitchHintView = null;
+                        try {
+                            if (finalHint.getParent() instanceof ViewGroup) {
+                                ((ViewGroup) finalHint.getParent()).removeView(finalHint);
+                            }
+                        } catch (Throwable ignored) {}
+                        if (apiSwitchHintView == finalHint) apiSwitchHintView = null;
                     }, 8000);
                 } catch (Throwable t) {
-                    XposedBridge.log("HT_AI 黑框提示addView失败: " + t.getMessage());
+                    XposedBridge.log("HT_AI 黑框提示显示失败: " + t.getMessage());
+                    // 最后的可见兜底：即使当前 View 层级瞬间重建，也让用户能看到本次 API/model。
+                    try {
+                        Toast.makeText(layout.getContext(), text, Toast.LENGTH_SHORT).show();
+                    } catch (Throwable ignored) {}
                 }
-            };
-            if (android.os.Looper.getMainLooper().isCurrentThread()) {
-                addViewRunnable.run();
-            } else {
-                layout.post(addViewRunnable);
-            }
+            });
         } catch (Throwable ignored) {}
     }
 

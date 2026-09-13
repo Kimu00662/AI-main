@@ -154,12 +154,15 @@ private static class ApiEndpoint {
 
     void onSuccess() {
         callCount++;
+        // 成功也消耗该 API 槽位的 1 次权重。
         slotCallCounts.merge(slot, 1, Integer::sum);
     }
 
     void onFailure() {
         cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
         callCount = 0;
+        // 失败同样消耗 1 次权重，避免坏 API 一直占着当前轮次。
+        slotCallCounts.merge(slot, 1, Integer::sum);
     }
 
     boolean needRotate() {
@@ -178,6 +181,7 @@ private static final List<ApiEndpoint> endpoints = new ArrayList<>();
 private static final Map<Integer, Integer> slotCallCounts = new ConcurrentHashMap<>();
 private static final Map<Integer, Set<String>> slotModelsUsed = new ConcurrentHashMap<>();
 private static volatile int roundRobinIndex = 0;
+private static volatile int roundRobinSlotId = -1;
 // ===== 輪換系統結束 =====
 private static final long API_COOLDOWN_MS = 3_000L;
 private static volatile ApiEndpoint lastUsedEndpoint = null;
@@ -2618,6 +2622,18 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
     if (emergencyStop) throw new IOException("USER_STOPPED");
     if (endpoints.isEmpty()) throw new IOException("沒有配置任何API端點");
 
+    /*
+     * 最终 API 调度规则：
+     * 1. 先按当前请求方向过滤 API：发送只看可发送，接收只看可接收。
+     * 2. API 的 weight 是“该 API 槽位的总尝试次数”，成功和失败都消耗 1 次。
+     * 3. 一个 API 只有 1 个模型：该模型失败一次，立即换下一个 API。
+     * 4. 一个 API 有多个模型：失败后换未失败过的模型；最多连续失败 2 个模型，
+     *    然后换下一个 API，避免一个多模型 API 把时间全部耗光。
+     * 5. 成功后该 API 的连续失败计数清零；只要 weight 还有剩余，就继续使用该 API。
+     * 6. API 本轮全部失败也不会永久禁用。其它符合当前方向的 API 轮完后，
+     *    会重新给本轮所有 API 恢复 weight，再次轮到它。
+     * 7. 多模型 API 中，失败过的模型在当前 API 轮次不立即重复；成功模型可继续使用。
+     */
     Map<Integer, List<ApiEndpoint>> slots = new LinkedHashMap<>();
     for (ApiEndpoint ep : endpoints) {
         if (!ep.enabled) continue;
@@ -2633,130 +2649,185 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
     if (slots.isEmpty()) throw new IOException("当前动作对应的方向找不到可用 API");
 
     List<Integer> slotIds = new ArrayList<>(slots.keySet());
-    int slotIndex = roundRobinIndex;
-    if (slotIndex < 0 || slotIndex >= slotIds.size()) slotIndex = 0;
-    Exception lastException = null;
-    boolean singleSlot = slots.size() == 1;
-    Set<String> failedThisRequest = new HashSet<>();
-    int maxAttempts = Math.max(2, slots.size() * 6);
+    int slotIndex = 0;
+    if (roundRobinSlotId >= 0) {
+        int previous = slotIds.indexOf(roundRobinSlotId);
+        if (previous >= 0) slotIndex = (previous + 1) % slotIds.size();
+    }
 
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+    Exception lastException = null;
+    int safetyCounter = 0;
+    final int maxModelFailures = 2;
+
+    while (true) {
+        if (emergencyStop) throw new IOException("USER_STOPPED");
+        if (++safetyCounter > Math.max(100, slotIds.size() * 50)) {
+            if (lastException instanceof IOException) throw (IOException) lastException;
+            throw new IOException("API 调度失败", lastException);
+        }
+
         if (slotIndex >= slotIds.size()) slotIndex = 0;
         int slotId = slotIds.get(slotIndex);
         List<ApiEndpoint> candidates = slots.get(slotId);
-        List<ApiEndpoint> available = new ArrayList<>();
-        Set<String> usedModels = slotModelsUsed.get(slotId);
-        if (usedModels == null) {
-            usedModels = ConcurrentHashMap.newKeySet();
-            slotModelsUsed.put(slotId, usedModels);
-        }
+        int slotWeight = candidates.get(0).weight;
+        int usedWeight = slotCallCounts.getOrDefault(slotId, 0);
 
-        boolean hasUnusedModel = false;
-        for (ApiEndpoint candidate : candidates) {
-            String candidateId = candidate.slot + "\u0001" + candidate.model;
-            if (!failedThisRequest.contains(candidateId) && !usedModels.contains(candidate.model)) {
-                hasUnusedModel = true;
-                break;
-            }
-        }
-        if (!hasUnusedModel) usedModels.clear();
-
-        for (ApiEndpoint candidate : candidates) {
-            String candidateId = candidate.slot + "\u0001" + candidate.model;
-            if (failedThisRequest.contains(candidateId)) continue;
-            if ((candidate.isAvailable() || singleSlot) && !usedModels.contains(candidate.model)) available.add(candidate);
-        }
-
-        if (available.isEmpty()) {
-            if (singleSlot) {
-                boolean allModelsFailed = true;
-                for (ApiEndpoint candidate : candidates) {
-                    if (!failedThisRequest.contains(candidate.slot + "\u0001" + candidate.model)) {
-                        allModelsFailed = false;
-                        break;
-                    }
-                }
-                if (allModelsFailed) {
-                    failedThisRequest.clear();
-                    for (ApiEndpoint candidate : candidates) candidate.cooldownUntil = 0;
-                    continue;
-                }
-            }
+        // 该 API 的本轮权重已经用完，进入下一个 API。
+        if (usedWeight >= slotWeight) {
             slotIndex = (slotIndex + 1) % slotIds.size();
-            if (slotIndex == 0) {
-                boolean allSlotsFailed = true;
-                for (Integer id : slotIds) {
-                    List<ApiEndpoint> slotCandidates = slots.get(id);
-                    boolean slotFailed = true;
-                    for (ApiEndpoint candidate : slotCandidates) {
-                        if (!failedThisRequest.contains(candidate.slot + "\u0001" + candidate.model)) {
-                            slotFailed = false;
-                            break;
-                        }
-                    }
-                    if (!slotFailed) {
-                        allSlotsFailed = false;
-                        break;
-                    }
-                }
-                if (allSlotsFailed) {
-                    failedThisRequest.clear();
-                    for (ApiEndpoint candidate : endpoints) candidate.cooldownUntil = 0;
-                }
-            }
-            roundRobinIndex = slotIndex;
+            roundRobinSlotId = slotIds.get(slotIndex);
             continue;
         }
 
-        ApiEndpoint targetEp = available.get((int) (Math.random() * available.size()));
-        try {
-            try {
-                if (targetEp.model != null && !targetEp.model.isEmpty() && body.has("model")) {
-                    body.put("model", targetEp.model);
+        Set<String> failedModels = slotModelsUsed.get(slotId);
+        if (failedModels == null) {
+            failedModels = ConcurrentHashMap.newKeySet();
+            slotModelsUsed.put(slotId, failedModels);
+        }
+
+        int slotFailureCount = 0;
+        boolean apiSucceeded = false;
+
+        // 同一个 API 内处理模型失败切换；成功后立即返回给上层。
+        while (true) {
+            if (emergencyStop) throw new IOException("USER_STOPPED");
+
+            usedWeight = slotCallCounts.getOrDefault(slotId, 0);
+            if (usedWeight >= slotWeight) break;
+
+            List<ApiEndpoint> usable = new ArrayList<>();
+            for (ApiEndpoint c : candidates) {
+                if (!c.isAvailable()) continue;
+                if (failedModels.contains(c.model)) continue;
+                usable.add(c);
+            }
+
+            // 当前 API 的模型都暂时不可用。先让位给其它 API，避免一个坏 API 卡住整个请求。
+            // 如果所有符合当前方向的 API 都暂时没有可用模型，说明这一轮确实全部失败了；
+            // 等待冷却后重新开启模型尝试，保证“失败过的 API”下一轮仍然会回来。
+            if (usable.isEmpty()) {
+                boolean anyUsableElsewhere = false;
+                for (Integer otherId : slotIds) {
+                    List<ApiEndpoint> otherList = slots.get(otherId);
+                    if (otherList == null) continue;
+                    Set<String> otherFailed = slotModelsUsed.get(otherId);
+                    for (ApiEndpoint other : otherList) {
+                        if (!other.isAvailable()) continue;
+                        if (otherFailed == null || !otherFailed.contains(other.model)) {
+                            if (slotCallCounts.getOrDefault(otherId, 0) < other.weight) {
+                                anyUsableElsewhere = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (anyUsableElsewhere) break;
                 }
-            } catch (JSONException ignored) {}
-            if (targetEp.supportsReasoningEffort && !"default".equals(targetEp.reasoningEffort)) {
-                try { body.put("reasoning_effort", targetEp.reasoningEffort); } catch (JSONException ignored) {}
+                if (!anyUsableElsewhere) {
+                    try { Thread.sleep(API_COOLDOWN_MS); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("API 调度被中断", ie);
+                    }
+                    slotModelsUsed.clear();
+                }
+                break;
             }
 
-            OkHttpClient useClient;
-            if (forceClient != null) useClient = forceClient;
-            else if (isReceive) useClient = getReceiveClient();
-            else useClient = targetEp.ensureClient();
-
-            String result = executeSingleRequest(useClient, body, targetEp);
-            targetEp.onSuccess();
-            Set<String> usedModelsAfterSuccess = slotModelsUsed.get(slotId);
-            if (usedModelsAfterSuccess != null) usedModelsAfterSuccess.add(targetEp.model);
-            int used = slotCallCounts.getOrDefault(slotId, 0);
-            if (used >= targetEp.weight) {
-                slotCallCounts.put(slotId, 0);
-                slotModelsUsed.remove(slotId);
-                slotIndex = (slotIndex + 1) % slotIds.size();
+            // 优先继续使用最近成功的模型；没有时再从未失败模型中选择。
+            ApiEndpoint preferred = null;
+            ApiEndpoint recent = lastUsedEndpoint;
+            if (recent != null && recent.slot == slotId && recent.model != null) {
+                for (ApiEndpoint c : usable) {
+                    if (recent.model.equals(c.model)) {
+                        preferred = c;
+                        break;
+                    }
+                }
             }
-            roundRobinIndex = slotIndex;
+            ApiEndpoint targetEp = preferred != null
+                    ? preferred
+                    : usable.get((int) (Math.random() * usable.size()));
 
-            boolean switched = lastUsedEndpoint != null && lastUsedEndpoint != targetEp;
-            lastUsedEndpoint = targetEp;
-            if (switched && "picker".equals(callSource.get()) && apiSwitchListener != null) {
-                apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
+            try {
+                try {
+                    if (targetEp.model != null && !targetEp.model.isEmpty() && body.has("model")) {
+                        body.put("model", targetEp.model);
+                    }
+                } catch (JSONException ignored) {}
+
+                if (targetEp.supportsReasoningEffort && !"default".equals(targetEp.reasoningEffort)) {
+                    try { body.put("reasoning_effort", targetEp.reasoningEffort); } catch (JSONException ignored) {}
+                }
+
+                OkHttpClient useClient;
+                if (forceClient != null) useClient = forceClient;
+                else if (isReceive) useClient = getReceiveClient();
+                else useClient = targetEp.ensureClient();
+
+                String result = executeSingleRequest(useClient, body, targetEp);
+                targetEp.onSuccess();
+                apiSucceeded = true;
+                slotFailureCount = 0;
+                failedModels.clear();
+
+                int used = slotCallCounts.getOrDefault(slotId, 0);
+                if (used >= slotWeight) {
+                    slotCallCounts.remove(slotId);
+                    slotModelsUsed.remove(slotId);
+                    slotIndex = (slotIndex + 1) % slotIds.size();
+                }
+                roundRobinSlotId = slotIds.get(slotIndex);
+
+                boolean switched = lastUsedEndpoint != null && lastUsedEndpoint != targetEp;
+                lastUsedEndpoint = targetEp;
+                if (switched && "picker".equals(callSource.get()) && apiSwitchListener != null) {
+                    apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
+                }
+                return result;
+            } catch (Exception e) {
+                if (emergencyStop) throw e;
+                lastException = e;
+                slotFailureCount++;
+                failedModels.add(targetEp.model);
+                targetEp.onFailure();
+
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻" + (API_COOLDOWN_MS / 1000) + "秒: " + msg);
+
+                // 单模型 API：一次失败立即换 API。
+                if (candidates.size() == 1) break;
+
+                // 多模型 API：最多失败 2 个模型，然后换 API。
+                if (slotFailureCount >= maxModelFailures) break;
             }
-            return result;
-        } catch (Exception e) {
-            if (emergencyStop) throw e;
-            lastException = e;
-            failedThisRequest.add(targetEp.slot + "\u0001" + targetEp.model);
-            String msg = e.getMessage() != null ? e.getMessage() : "";
-            Log.w(TAG, "HT_AI 端點 " + targetEp.model + " 失敗，冷卻" + (API_COOLDOWN_MS / 1000) + "秒: " + msg);
-            targetEp.onFailure();
-            if (!singleSlot) slotIndex = (slotIndex + 1) % slotIds.size();
-            roundRobinIndex = slotIndex;
+        }
+
+        // 当前 API 失败/耗尽后，不永久拉黑；只让它在本轮暂时让位。
+        if (!apiSucceeded) {
+            slotIndex = (slotIndex + 1) % slotIds.size();
+            roundRobinSlotId = slotIds.get(slotIndex);
+        }
+
+        // 所有符合当前方向的 API 都已经消耗完本轮 weight：开始新一轮。
+        boolean allExhausted = true;
+        for (Integer id : slotIds) {
+            List<ApiEndpoint> list = slots.get(id);
+            if (list != null && slotCallCounts.getOrDefault(id, 0) < list.get(0).weight) {
+                allExhausted = false;
+                break;
+            }
+        }
+        if (allExhausted) {
+            slotCallCounts.clear();
+            slotModelsUsed.clear();
+            for (ApiEndpoint ep : endpoints) {
+                ep.callCount = 0;
+            }
+            // 新一轮从当前 API 的下一个 API 开始，保证不会长期黏住同一个 API。
+            if (slotIds.size() > 0) {
+                roundRobinSlotId = slotIds.get(slotIndex);
+            }
         }
     }
-
-    if (lastException == null) throw new IOException("所有API端點均不可用");
-    if (lastException instanceof IOException) throw (IOException) lastException;
-    throw new IOException(String.valueOf(lastException));
 }
 
 private static String executeSingleRequest(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {

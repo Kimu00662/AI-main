@@ -2820,7 +2820,10 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             slotModelsFailed.remove(slotId);
             slotIndex = (slotIndex + 1) % slotIds.size();
             roundRobinIndex = slotIndex;
-            throw e;
+            if (e instanceof IOException) {
+                throw (IOException) e;
+            }
+            throw new IOException(e.getMessage() != null ? e.getMessage() : "API请求失败", e);
         }
     }
 }

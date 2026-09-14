@@ -20,6 +20,8 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -184,6 +186,9 @@ private static final Map<Integer, Set<String>> slotModelsFailed = new Concurrent
 // 每个 API 槽位独立保存模型轮换游标。注意：模型数量绝不会放大 API 权重。
 private static final Map<Integer, Integer> slotModelCursor = new ConcurrentHashMap<>();
 private static volatile int roundRobinIndex = 0;
+private static volatile int persistedNextSlotId = -1;
+private static volatile String rotationConfigFingerprint = "";
+private static File rotationStateFile;
 // ===== 輪換系統結束 =====
 private static final long API_COOLDOWN_MS = 3_000L;
 private static volatile ApiEndpoint lastUsedEndpoint = null;
@@ -558,6 +563,7 @@ private static volatile OkHttpClient receiveClient = null;
         friendCacheFile = new File("/data/data/com.hellotalk/files/htai_friend_cache.txt");
         promptFile = new File("/data/local/tmp/htai_prompts.txt");
         draftsFile = new File("/data/data/com.hellotalk/files/htai_drafts.json");
+        rotationStateFile = new File("/data/data/com.hellotalk/files/htai_rotation_state.txt");
 
         loadCache();
         loadFriendCache();
@@ -598,6 +604,103 @@ public static boolean readConfigBoolean(String key, boolean defaultVal) {
     String v = readConfigValue(key);
     if (v == null || v.isEmpty()) return defaultVal;
     return "true".equalsIgnoreCase(v);
+}
+
+private static String rotationConfigFingerprint() {
+    StringBuilder raw = new StringBuilder();
+    for (int i = 1; i <= 8; i++) {
+        String suffix = (i == 1) ? "" : ("_" + i);
+        raw.append(i).append('|')
+                .append(readConfigValue("api_key" + suffix)).append('|')
+                .append(readConfigValue("api_url" + suffix)).append('|')
+                .append(readConfigValue("model" + suffix)).append('|')
+                .append(readConfigValue("model_list" + suffix)).append('|')
+                .append(readConfigValue("api_weight" + suffix)).append('|')
+                .append(readConfigValue("api_enabled" + suffix)).append('|')
+                .append(readConfigValue("api_direction" + suffix)).append('|')
+                .append(readConfigValue("reasoning_effort" + suffix)).append('\n');
+    }
+    try {
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(raw.toString().getBytes(Charset.forName("UTF-8")));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest) hex.append(String.format(Locale.US, "%02x", b & 0xff));
+        return hex.toString();
+    } catch (Exception ignored) {
+        return Integer.toHexString(raw.toString().hashCode());
+    }
+}
+
+private static void restoreRotationState(String fingerprint) {
+    rotationConfigFingerprint = fingerprint;
+    persistedNextSlotId = -1;
+    if (rotationStateFile == null || !rotationStateFile.exists()) return;
+    try {
+        BufferedReader r = new BufferedReader(new FileReader(rotationStateFile));
+        String line;
+        String savedFingerprint = null;
+        int nextSlot = -1;
+        Map<Integer, Integer> savedCounts = new ConcurrentHashMap<>();
+        Map<Integer, Integer> savedCursors = new ConcurrentHashMap<>();
+        while ((line = r.readLine()) != null) {
+            if (line.startsWith("fingerprint=")) savedFingerprint = line.substring(12).trim();
+            else if (line.startsWith("next_slot=")) nextSlot = Integer.parseInt(line.substring(10).trim());
+            else if (line.startsWith("counts=")) {
+                for (String item : line.substring(7).split(",")) {
+                    String[] pair = item.split(":", 2);
+                    if (pair.length == 2) savedCounts.put(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]));
+                }
+            } else if (line.startsWith("cursors=")) {
+                for (String item : line.substring(8).split(",")) {
+                    String[] pair = item.split(":", 2);
+                    if (pair.length == 2) savedCursors.put(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]));
+                }
+            }
+        }
+        r.close();
+        if (!fingerprint.equals(savedFingerprint)) return;
+        persistedNextSlotId = nextSlot;
+        slotCallCounts.putAll(savedCounts);
+        slotModelCursor.putAll(savedCursors);
+    } catch (Throwable ignored) {
+        persistedNextSlotId = -1;
+        slotCallCounts.clear();
+        slotModelCursor.clear();
+    }
+}
+
+private static void saveRotationState(int nextSlotId) {
+    if (rotationStateFile == null || rotationConfigFingerprint == null
+            || rotationConfigFingerprint.isEmpty()) return;
+    try {
+        File temp = new File(rotationStateFile.getAbsolutePath() + ".tmp");
+        BufferedWriter w = new BufferedWriter(new FileWriter(temp));
+        w.write("fingerprint=" + rotationConfigFingerprint);
+        w.newLine();
+        w.write("next_slot=" + nextSlotId);
+        w.newLine();
+        w.write("counts=");
+        boolean first = true;
+        for (Map.Entry<Integer, Integer> e : slotCallCounts.entrySet()) {
+            if (!first) w.write(",");
+            w.write(e.getKey() + ":" + e.getValue());
+            first = false;
+        }
+        w.newLine();
+        w.write("cursors=");
+        first = true;
+        for (Map.Entry<Integer, Integer> e : slotModelCursor.entrySet()) {
+            if (!first) w.write(",");
+            w.write(e.getKey() + ":" + e.getValue());
+            first = false;
+        }
+        w.newLine();
+        w.close();
+        if (!temp.renameTo(rotationStateFile)) {
+            temp.delete();
+        }
+        persistedNextSlotId = nextSlotId;
+    } catch (Throwable ignored) {}
 }
 
 private static void loadEndpoints() {
@@ -650,6 +753,8 @@ if (reasoningEffort == null || reasoningEffort.isEmpty()) {
     if (endpoints.isEmpty() && apiKey != null && !apiKey.isEmpty()) {
         endpoints.add(new ApiEndpoint(1, apiKey, apiUrl, model, 3, true, 0, "default"));
     }
+    rotationConfigFingerprint = rotationConfigFingerprint();
+    restoreRotationState(rotationConfigFingerprint);
     Log.i(TAG, "HT_AI 共加載 " + endpoints.size() + " 個API端點");
 }
 
@@ -2642,6 +2747,11 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
 
     List<Integer> slotIds = new ArrayList<>(slots.keySet());
     int slotIndex = roundRobinIndex;
+    if (persistedNextSlotId >= 0) {
+        int restoredIndex = slotIds.indexOf(persistedNextSlotId);
+        slotIndex = restoredIndex >= 0 ? restoredIndex : 0;
+        persistedNextSlotId = -1;
+    }
     if (slotIndex < 0 || slotIndex >= slotIds.size()) slotIndex = 0;
 
     while (true) {
@@ -2824,6 +2934,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                 slotIndex = (slotIndex + 1) % slotIds.size();
                 roundRobinIndex = slotIndex;
             }
+            saveRotationState(slotIds.get(roundRobinIndex));
             return result;
         } catch (Exception e) {
             if (emergencyStop) throw e;
@@ -2837,6 +2948,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             // 不在同一次点击里偷偷换 API/模型重试。
             slotIndex = (slotIndex + 1) % slotIds.size();
             roundRobinIndex = slotIndex;
+            saveRotationState(slotIds.get(roundRobinIndex));
             if (e instanceof IOException) {
                 throw (IOException) e;
             }

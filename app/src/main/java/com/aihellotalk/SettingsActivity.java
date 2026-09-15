@@ -838,7 +838,11 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         boolean[] checked = new boolean[items.length];
 
         String savedModels = prefs.getString("model_list" + suffix, "");
-        if (!savedModels.isEmpty()) {
+        String savedIdentity = endpointIdentity(
+                prefs.getString("api_key" + suffix, ""),
+                prefs.getString("api_url" + suffix, ""));
+        boolean sameApi = endpointIdentity(key, url).equals(savedIdentity);
+        if (sameApi && !savedModels.isEmpty()) {
             String[] savedArr = savedModels.split(",");
             for (int i = 0; i < items.length; i++) {
                 for (String saved : savedArr) {
@@ -975,7 +979,13 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         boolean[] checked = new boolean[items.length];
 
         String savedModels = prefs.getString("model_list", "");
-        if (!savedModels.isEmpty()) {
+        String savedIdentity = endpointIdentity(
+                prefs.getString("api_key", ""),
+                prefs.getString("api_url", ""));
+        boolean sameApi = endpointIdentity(
+                etKey.getText().toString().trim(),
+                etUrl.getText().toString().trim()).equals(savedIdentity);
+        if (sameApi && !savedModels.isEmpty()) {
             String[] savedArr = savedModels.split(",");
             for (int i = 0; i < items.length; i++) {
                 for (String saved : savedArr) {

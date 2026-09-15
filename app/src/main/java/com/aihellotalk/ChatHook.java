@@ -1353,7 +1353,7 @@ private static CharSequence styleReceivedTranslation(String translatedText) {
     int open = text.lastIndexOf('（', contentEnd - 1);
     if (open >= 0 && contentEnd > open && text.charAt(contentEnd - 1) == '）') {
         styled.setSpan(
-                new ForegroundColorSpan(Color.parseColor("#373345")),
+                new ForegroundColorSpan(Color.parseColor("#76647F")),
                 open,
                 contentEnd,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE

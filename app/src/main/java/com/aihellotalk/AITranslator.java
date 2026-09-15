@@ -2819,8 +2819,8 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             slotModelsUsed.clear();
             slotModelsFailed.clear();
             for (ApiEndpoint ep : endpoints) ep.callCount = 0;
-            if (slotIndex < 0 || slotIndex >= slotIds.size()) slotIndex = 0;
-            roundRobinIndex = slotIndex;
+            slotIndex = 0;
+            roundRobinIndex = 0;
             continue;
         }
 

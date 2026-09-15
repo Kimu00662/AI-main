@@ -188,6 +188,8 @@ private static final Map<Integer, Integer> slotModelCursor = new ConcurrentHashM
 private static volatile int roundRobinIndex = 0;
 private static volatile int persistedNextSlotId = -1;
 private static volatile String rotationConfigFingerprint = "";
+private static volatile long apiConfigModified = -1L;
+private static volatile long apiConfigLength = -1L;
 private static File rotationStateFile;
 // ===== 輪換系統結束 =====
 private static final long API_COOLDOWN_MS = 3_000L;
@@ -703,7 +705,7 @@ private static void saveRotationState(int nextSlotId) {
     } catch (Throwable ignored) {}
 }
 
-private static void loadEndpoints() {
+private static synchronized void loadEndpoints() {
     endpoints.clear();
     slotCallCounts.clear();
     slotModelsUsed.clear();
@@ -755,7 +757,19 @@ if (reasoningEffort == null || reasoningEffort.isEmpty()) {
     }
     rotationConfigFingerprint = rotationConfigFingerprint();
     restoreRotationState(rotationConfigFingerprint);
+    File configFile = new File("/data/local/tmp/htai_config.txt");
+    apiConfigModified = configFile.exists() ? configFile.lastModified() : -1L;
+    apiConfigLength = configFile.exists() ? configFile.length() : -1L;
     Log.i(TAG, "HT_AI 共加載 " + endpoints.size() + " 個API端點");
+}
+
+private static void reloadEndpointsIfConfigChanged() {
+    File configFile = new File("/data/local/tmp/htai_config.txt");
+    long modified = configFile.exists() ? configFile.lastModified() : -1L;
+    long length = configFile.exists() ? configFile.length() : -1L;
+    if (modified == apiConfigModified && length == apiConfigLength) return;
+    loadEndpoints();
+    Log.i(TAG, "HT_AI 检测到 API 配置变化，已重新加载端点");
 }
 
 private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
@@ -2729,6 +2743,7 @@ private static String executeRequestWithEitherDirection(OkHttpClient useClient, 
 
 private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {
     if (emergencyStop) throw new IOException("USER_STOPPED");
+    reloadEndpointsIfConfigChanged();
     if (endpoints.isEmpty()) throw new IOException("没有配置任何API端点");
 
     Map<Integer, List<ApiEndpoint>> slots = new LinkedHashMap<>();

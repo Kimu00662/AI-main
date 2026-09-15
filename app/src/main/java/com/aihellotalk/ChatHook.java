@@ -1353,13 +1353,24 @@ private static CharSequence styleReceivedTranslation(String translatedText) {
     int open = text.lastIndexOf('（', contentEnd - 1);
     if (open >= 0 && contentEnd > open && text.charAt(contentEnd - 1) == '）') {
         styled.setSpan(
-                new ForegroundColorSpan(Color.parseColor("#76647F")),
+                new ForegroundColorSpan(Color.parseColor("#7B5C86")),
                 open,
                 contentEnd,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
         );
     }
     return styled;
+}
+
+private static void setStyledReceivedTranslation(TextView textView, String translatedText) {
+    String expected = translatedText == null ? "" : translatedText;
+    textView.setText(styleReceivedTranslation(expected));
+    textView.postDelayed(() -> {
+        CharSequence current = textView.getText();
+        if (current != null && expected.equals(current.toString())) {
+            textView.setText(styleReceivedTranslation(expected));
+        }
+    }, 120L);
 }
 
 private static void hookTextViewRender(ClassLoader cl) {
@@ -1445,7 +1456,7 @@ if (!AITranslator.canReceiveAny()) return;
                                 AITranslator.cacheResult(key, ft, t);
                             }
                             tv.post(() -> {
-                                try { tv.setText(styleReceivedTranslation(t + " 🔄")); } catch (Throwable ignored) {}
+                                try { setStyledReceivedTranslation(tv, t + " 🔄"); } catch (Throwable ignored) {}
                             });
                         }
                     } catch (Throwable ignored) {
@@ -1595,7 +1606,7 @@ if (!AITranslator.canReceiveAny()) return;
 
                                             targetTv.post(() -> {
                                                 try {
-                                                    targetTv.setText(styleReceivedTranslation(chinese + reverseMark));
+                                                    setStyledReceivedTranslation(targetTv, chinese + reverseMark);
                                                 } catch (Throwable ignored) {}
                                             });
                                         } else {

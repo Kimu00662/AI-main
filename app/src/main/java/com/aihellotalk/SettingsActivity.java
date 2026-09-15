@@ -19,7 +19,9 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -79,6 +81,7 @@ public class SettingsActivity extends Activity {
     private TextView promptHeaderTitle;
 
     private SharedPreferences prefs;
+    private final Map<String, String> selectedModelListIdentity = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle b) {
@@ -820,7 +823,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                     if (models.isEmpty()) {
                         toast("该 API 获取模型列表失败，请手动输入模型名");
                     } else {
-                        showModelPickerForApi(models, targetModelEdit, suffix);
+                        showModelPickerForApi(models, targetModelEdit, suffix, keyStr, urlStr);
                     }
                 });
             } catch (Exception e) {
@@ -829,7 +832,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }).start();
     }
 
-    private void showModelPickerForApi(List<String> models, EditText targetEdit, String suffix) {
+    private void showModelPickerForApi(List<String> models, EditText targetEdit, String suffix,
+            String key, String url) {
         String[] items = models.toArray(new String[0]);
         boolean[] checked = new boolean[items.length];
 
@@ -857,6 +861,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
             editor.putString("model_list" + suffix, selectedStr);
             editor.putString("model" + suffix, selected.get(0));
             editor.apply();
+            selectedModelListIdentity.put(suffix, endpointIdentity(key, url));
 
             targetEdit.setText(selected.get(0));
             StringBuilder sb = new StringBuilder("已选择：");
@@ -1012,6 +1017,9 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
             editor.putString("model_list", selectedStr);
             editor.putString("model", selected.get(0));
             editor.apply();
+            selectedModelListIdentity.put("", endpointIdentity(
+                    etKey.getText().toString().trim(),
+                    etUrl.getText().toString().trim()));
 
             etModel.setText(selected.get(0));
 
@@ -1026,23 +1034,63 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         builder.show();
     }
 
-    // 手动修改模型输入框后，保持 model 与 model_list 一致。
-    // 如果模型来自“获取模型”的多选结果且第一项仍未改变，则保留完整多模型列表。
-    private void syncManualModelList(SharedPreferences.Editor editor, String suffix, String model) {
+    private String endpointIdentity(String key, String url) {
+        String normalizedKey = key == null ? "" : key.trim();
+        String normalizedUrl = url == null ? "" : url.trim();
+        return normalizedKey + "\u0000" + normalizedUrl;
+    }
+
+    private void syncManualModelList(SharedPreferences.Editor editor, String suffix, String model,
+            String currentKey, String currentUrl) {
         String normalized = model == null ? "" : model.trim();
-        String key = "model_list" + suffix;
-        String oldList = prefs.getString(key, "");
+        String listKey = "model_list" + suffix;
+        String oldList = prefs.getString(listKey, "");
         String first = "";
         if (oldList != null && !oldList.trim().isEmpty()) {
             String[] parts = oldList.split(",");
             if (parts.length > 0) first = parts[0].trim();
         }
+
+        String oldIdentity = endpointIdentity(
+                prefs.getString("api_key" + suffix, ""),
+                prefs.getString("api_url" + suffix, ""));
+        String currentIdentity = endpointIdentity(currentKey, currentUrl);
+        boolean identityChanged = !currentIdentity.equals(oldIdentity);
+        boolean selectedForCurrentApi = currentIdentity.equals(selectedModelListIdentity.get(suffix));
+
         if (normalized.isEmpty()) {
-            editor.putString(key, "");
-        } else if (normalized.equals(first)) {
-            editor.putString(key, oldList);
+            editor.putString(listKey, "");
+        } else if (normalized.equals(first) && (!identityChanged || selectedForCurrentApi)) {
+            editor.putString(listKey, oldList);
         } else {
-            editor.putString(key, normalized);
+            editor.putString(listKey, normalized);
+        }
+    }
+
+    private String configValue(String config, String key) {
+        if (config == null) return null;
+        for (String line : config.split("\\n", -1)) {
+            if (line.startsWith(key + "=")) return line.substring(key.length() + 1).trim();
+        }
+        return null;
+    }
+
+    private void verifySavedApiConfig(String config) {
+        if (config == null || config.trim().isEmpty()) {
+            throw new IllegalStateException("配置文件写入失败");
+        }
+        for (int i = 1; i <= 8; i++) {
+            String suffix = i == 1 ? "" : "_" + i;
+            String expectedKey = prefs.getString("api_key" + suffix, "").trim();
+            String expectedUrl = prefs.getString("api_url" + suffix, "").trim();
+            String expectedModel = prefs.getString("model" + suffix, "").trim();
+            String expectedList = prefs.getString("model_list" + suffix, expectedModel).trim();
+            if (!expectedKey.equals(configValue(config, "api_key" + suffix))
+                    || !expectedUrl.equals(configValue(config, "api_url" + suffix))
+                    || !expectedModel.equals(configValue(config, "model" + suffix))
+                    || !expectedList.equals(configValue(config, "model_list" + suffix))) {
+                throw new IllegalStateException("API " + i + " 配置写入校验失败");
+            }
         }
     }
 
@@ -1116,7 +1164,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_weight", etWeight1.getText().toString().trim());
         editor.putInt("api_direction", spinnerDir1.getSelectedItemPosition());
         editor.putString("model", mdl);
-        syncManualModelList(editor, "", mdl);
+        syncManualModelList(editor, "", mdl, key, url);
         editor.putString("temperature", tempStr);
         editor.putString("max_chat_messages", maxChatStr);
         String liveContextMaxStr = etLiveContextMax.getText().toString().trim();
@@ -1153,7 +1201,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_2", etUrl2.getText().toString().trim());
         String model2 = etModel2.getText().toString().trim();
         editor.putString("model_2", model2);
-        syncManualModelList(editor, "_2", model2);
+        syncManualModelList(editor, "_2", model2,
+                etKey2.getText().toString().trim(), etUrl2.getText().toString().trim());
         editor.putString("api_weight_2", etWeight2.getText().toString().trim());
         editor.putInt("api_direction_2", spinnerDir2.getSelectedItemPosition());
         
@@ -1162,7 +1211,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_3", etUrl3.getText().toString().trim());
         String model3 = etModel3.getText().toString().trim();
         editor.putString("model_3", model3);
-        syncManualModelList(editor, "_3", model3);
+        syncManualModelList(editor, "_3", model3,
+                etKey3.getText().toString().trim(), etUrl3.getText().toString().trim());
         editor.putString("api_weight_3", etWeight3.getText().toString().trim());
         editor.putInt("api_direction_3", spinnerDir3.getSelectedItemPosition());
         
@@ -1171,7 +1221,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_4", etUrl4.getText().toString().trim());
         String model4 = etModel4.getText().toString().trim();
         editor.putString("model_4", model4);
-        syncManualModelList(editor, "_4", model4);
+        syncManualModelList(editor, "_4", model4,
+                etKey4.getText().toString().trim(), etUrl4.getText().toString().trim());
         editor.putString("api_weight_4", etWeight4.getText().toString().trim());
         editor.putInt("api_direction_4", spinnerDir4.getSelectedItemPosition());
         
@@ -1180,7 +1231,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_5", etUrl5.getText().toString().trim());
         String model5 = etModel5.getText().toString().trim();
         editor.putString("model_5", model5);
-        syncManualModelList(editor, "_5", model5);
+        syncManualModelList(editor, "_5", model5,
+                etKey5.getText().toString().trim(), etUrl5.getText().toString().trim());
         editor.putString("api_weight_5", etWeight5.getText().toString().trim());
         editor.putInt("api_direction_5", spinnerDir5.getSelectedItemPosition());
 
@@ -1189,7 +1241,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_6", etUrl6.getText().toString().trim());
         String model6 = etModel6.getText().toString().trim();
         editor.putString("model_6", model6);
-        syncManualModelList(editor, "_6", model6);
+        syncManualModelList(editor, "_6", model6,
+                etKey6.getText().toString().trim(), etUrl6.getText().toString().trim());
         editor.putString("api_weight_6", etWeight6.getText().toString().trim());
         editor.putInt("api_direction_6", spinnerDir6.getSelectedItemPosition());
 
@@ -1198,7 +1251,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_7", etUrl7.getText().toString().trim());
         String model7 = etModel7.getText().toString().trim();
         editor.putString("model_7", model7);
-        syncManualModelList(editor, "_7", model7);
+        syncManualModelList(editor, "_7", model7,
+                etKey7.getText().toString().trim(), etUrl7.getText().toString().trim());
         editor.putString("api_weight_7", etWeight7.getText().toString().trim());
         editor.putInt("api_direction_7", spinnerDir7.getSelectedItemPosition());
 
@@ -1207,7 +1261,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("api_url_8", etUrl8.getText().toString().trim());
         String model8 = etModel8.getText().toString().trim();
         editor.putString("model_8", model8);
-        syncManualModelList(editor, "_8", model8);
+        syncManualModelList(editor, "_8", model8,
+                etKey8.getText().toString().trim(), etUrl8.getText().toString().trim());
         editor.putString("api_weight_8", etWeight8.getText().toString().trim());
         editor.putInt("api_direction_8", spinnerDir8.getSelectedItemPosition());
         
@@ -1334,6 +1389,7 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                 runRoot(prompts);
 
                 runRoot("chmod 644 /data/local/tmp/htai_config.txt /data/local/tmp/htai_prompts.txt");
+                verifySavedApiConfig(runRoot("cat /data/local/tmp/htai_config.txt 2>/dev/null"));
                 restoreFriendsFromStore();
                 rebuildFriendsFromHistory();
 

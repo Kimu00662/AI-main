@@ -2209,13 +2209,20 @@ private static boolean isDirtyHistoryContent(String content) {
         if (text.isEmpty()) return text;
         if (!needTranslateToChinese(text)) return text;
 
+        String receiveFormatRule = "\n\n【接收翻译输出格式·最高优先级】\n"
+                + "只输出1个自然中文译文，末尾必须添加一个中文全角括号批注。\n"
+                + "固定结构：中文译文（承接的话题；语气、态度或潜台词）。\n"
+                + "括号只概括话题，不写‘回应对方’、‘回应自己’等人物关系；下方历史中的‘我’是用户，‘对方’是发来当前外语的她。\n"
+                + "话题和潜台词必须依据当前原文及真实上下文，不得编造；无法确定时只写有把握的信息。\n"
+                + "括号内总计不超过30个汉字，禁止展开分析；禁止输出前言、解释、建议、多个版本或其他内容。\n";
+
         try {
             JSONArray messages = new JSONArray();
             String friendName = getFriendName(chatId);
             String nameHint = (friendName != null && !friendName.isEmpty() && !friendName.equals(chatId)) 
                 ? "\n\n【绝密警告：当前聊天对象是 " + friendName + "。你只需在心里知道对方是谁即可。在给出的最终中文翻译和括号潜台词里，绝对不要生硬地加上对方的名字！保持第一人称的自然语境，不许画蛇添足！】" 
                 : "";
-            String sysPrompt = receivePrompt + profileBlock(chatId) + nameHint;
+            String sysPrompt = receivePrompt + profileBlock(chatId) + nameHint + receiveFormatRule;
             messages.put(createMessageObj("system", sysPrompt));
 
             JSONArray fullHistory = loadHistory(chatId);
@@ -2245,7 +2252,7 @@ private static boolean isDirtyHistoryContent(String content) {
                     return refuseGuard(fallbackToPureTextRequest(messages, true), text);
                 else throw e;
             }
-        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + "\n\n" + text, true), text); }
+        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + text, true), text); }
     }
 
     public static String fromChinese(String text, String lang) throws IOException {

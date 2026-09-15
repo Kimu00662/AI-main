@@ -8,7 +8,9 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.Layout;
 import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -1341,6 +1343,25 @@ private static boolean readStealthConfig(String key, boolean def) {
     return def;
 }
 
+private static CharSequence styleReceivedTranslation(String translatedText) {
+    String text = translatedText == null ? "" : translatedText;
+    SpannableStringBuilder styled = new SpannableStringBuilder(text);
+    String reverseMark = " 🔄";
+    int contentEnd = text.endsWith(reverseMark)
+            ? text.length() - reverseMark.length()
+            : text.length();
+    int open = text.lastIndexOf('（', contentEnd - 1);
+    if (open >= 0 && contentEnd > open && text.charAt(contentEnd - 1) == '）') {
+        styled.setSpan(
+                new ForegroundColorSpan(Color.parseColor("#6C63FF")),
+                open,
+                contentEnd,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        );
+    }
+    return styled;
+}
+
 private static void hookTextViewRender(ClassLoader cl) {
     if (htTextViewClass == null) return;
 
@@ -1367,7 +1388,11 @@ if (newReplyControllerDetected) {
 CharSequence cs = (CharSequence) param.args[0];
                 String s = cs.toString();
                 if (s.isEmpty() || s.length() > 5000) return;
-                if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
+                if (s.endsWith(" 🔄")) {
+                    param.args[0] = styleReceivedTranslation(s);
+                    return;
+                }
+                if (s.endsWith(" 🌐")) return;
 
                 // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
@@ -1396,7 +1421,7 @@ if (cidNow != null && !cidNow.trim().isEmpty() && !"0".equals(cidNow) && !"null"
     d = AITranslator.foreignToChinese.get(s);
 }
 if (d != null && !d.equals(s)) {
-    param.args[0] = d + " 🔄";
+    param.args[0] = styleReceivedTranslation(d + " 🔄");
     return;
 }
 
@@ -1420,7 +1445,7 @@ if (!AITranslator.canReceiveAny()) return;
                                 AITranslator.cacheResult(key, ft, t);
                             }
                             tv.post(() -> {
-                                try { tv.setText(t + " 🔄"); } catch (Throwable ignored) {}
+                                try { tv.setText(styleReceivedTranslation(t + " 🔄")); } catch (Throwable ignored) {}
                             });
                         }
                     } catch (Throwable ignored) {
@@ -1570,7 +1595,7 @@ if (!AITranslator.canReceiveAny()) return;
 
                                             targetTv.post(() -> {
                                                 try {
-                                                    targetTv.setText(chinese + reverseMark);
+                                                    targetTv.setText(styleReceivedTranslation(chinese + reverseMark));
                                                 } catch (Throwable ignored) {}
                                             });
                                         } else {

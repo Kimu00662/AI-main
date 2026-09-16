@@ -162,6 +162,7 @@ private static volatile String pendingSendQuote = null;
     private static volatile boolean lastPickerOneTime = false;
     private static volatile Button versionButton = null;
     private static volatile EditText versionEdit = null;
+    private static volatile EditText clipboardSyncEdit = null;
 
     private static class RenderedImageInfo {
         final String path, url, compressedUrl;
@@ -2401,12 +2402,29 @@ updateTranslateBtnText(btn);
                 edit.post(ev);
 
                 String now = s == null ? "" : s.toString();
-                if (pendingSelectedForeign != null && now.trim().isEmpty()) {
+                String selectedForeign = pendingSelectedForeign;
+
+                if (clipboardSyncEdit == edit) {
+                    if (now.isEmpty()) {
+                        clipboardSyncEdit = null;
+                    } else if (selectedForeign == null || !selectedForeign.equals(now)) {
+                        try {
+                            ((android.content.ClipboardManager) edit.getContext()
+                                    .getSystemService(android.content.Context.CLIPBOARD_SERVICE))
+                                    .setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", now));
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                if (selectedForeign != null && !selectedForeign.equals(now)) {
+                    pendingFriendRegister = false;
+                    pendingFriendChatId = null;
                     pendingSelectedForeign = null;
                     lastPickerResult = null;
-                    uiHandler.post(() -> {
-                        if (versionButton != null) versionButton.setVisibility(View.GONE);
-                    });
+                    lastPickerOrig = null;
+                    lastPickerPns = null;
+                    lastPickerOneTime = false;
+                    verBtn.setVisibility(View.GONE);
                 }
             }
 
@@ -3053,6 +3071,15 @@ result = AITranslator.translateForPicker(
                     AITranslator.suppressSentForeign(foreign);
                 }
 
+                pendingSelectedForeign = foreign;
+                clipboardSyncEdit = edit;
+                pendingFriendRegister = true;
+                lastPickerResult = result;
+                lastPickerOrig = origChinese;
+                lastPickerPns = pn;
+                lastPickerOneTime = oneTime;
+                pendingFriendChatId = currentChatId;
+
                 edit.setText(foreign);
                 edit.setSelection(foreign.length());
 
@@ -3060,14 +3087,6 @@ result = AITranslator.translateForPicker(
                     ((android.content.ClipboardManager) ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE))
                             .setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", foreign));
                 } catch (Exception ignored) {}
-
-                pendingSelectedForeign = foreign;
-                pendingFriendRegister = true;
-                lastPickerResult = result;
-                lastPickerOrig = origChinese;
-                lastPickerPns = pn;
-                lastPickerOneTime = oneTime;
-                pendingFriendChatId = currentChatId;
 
                 uiHandler.post(() -> {
                     if (versionButton != null) {

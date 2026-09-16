@@ -1913,14 +1913,22 @@ try {
     public static boolean isChineseOnly(String text) {
         if (text == null || text.trim().isEmpty()) return false;
         if (containsJapanese(text)) return false;
-        for (char c : text.toCharArray()) {
-            Character.UnicodeBlock block = Character.UnicodeBlock.of(c);
-            if (block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
+        boolean hasChinese = false;
+        for (int i = 0; i < text.length();) {
+            int codePoint = text.codePointAt(i);
+            i += Character.charCount(codePoint);
+            Character.UnicodeBlock block = Character.UnicodeBlock.of(codePoint);
+            boolean isChinese = block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
                     || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A
                     || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B
-                    || block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS) return true;
+                    || block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS;
+            if (isChinese) {
+                hasChinese = true;
+            } else if (Character.isLetter(codePoint)) {
+                return false;
+            }
         }
-        return false;
+        return hasChinese;
     }
 
     public static boolean needTranslateToChinese(String text) {

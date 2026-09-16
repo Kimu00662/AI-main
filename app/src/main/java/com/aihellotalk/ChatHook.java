@@ -1369,9 +1369,9 @@ CharSequence cs = (CharSequence) param.args[0];
                 if (s.isEmpty() || s.length() > 5000) return;
                 if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
 
-                // 纯中文和纯日语保持原文；混合文本只要含其它语言字母就继续处理。
+                // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
-                if (!AITranslator.needTranslateToChinese(s)) return;
+                if (AITranslator.containsJapanese(s)) return;
 
                 // 自己发的：只查 mySentDrafts，命中只加 🌐
 String d = AITranslator.mySentDrafts.get(s);
@@ -1966,7 +1966,7 @@ if ("chat_user_profile".equals(mid)) {
 
                 if (text.startsWith("[")) return;
                 if (isStandaloneAttachmentUrl(text)) return;
-                if (!AITranslator.needTranslateToChinese(text)) return;
+                if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 if (isMine) {
                     /*
@@ -1978,7 +1978,8 @@ if ("chat_user_profile".equals(mid)) {
 
                     if (!ownForeignKey.isEmpty()
                             && !ownForeignKey.startsWith("[")
-                            && AITranslator.needTranslateToChinese(ownForeignKey)) {
+                            && !AITranslator.isChineseOnly(ownForeignKey)
+                            && !AITranslator.containsJapanese(ownForeignKey)) {
                         knownOwnForeignTexts.add(ownForeignKey);
                     }
 
@@ -3405,8 +3406,7 @@ if (chatIdInvalid) return;
 
             if (text == null || text.trim().isEmpty()) return;
             text = text.trim();
-            if (text.startsWith("[") || isStandaloneAttachmentUrl(text)
-                    || !AITranslator.needTranslateToChinese(text)) return;
+            if (text.startsWith("[") || isStandaloneAttachmentUrl(text) || AITranslator.isChineseOnly(text)) return;
 
             if (pendingFriendRegister) {
                 String registrationChatId = newReplyControllerDetected
@@ -3418,7 +3418,8 @@ if (chatIdInvalid) return;
             // 记录已经确认由我发出的外语消息。
             if (!text.isEmpty()
                     && !text.startsWith("[")
-                    && AITranslator.needTranslateToChinese(text)) {
+                    && !AITranslator.isChineseOnly(text)
+                    && !AITranslator.containsJapanese(text)) {
                 knownOwnForeignTexts.add(text);
             }
 

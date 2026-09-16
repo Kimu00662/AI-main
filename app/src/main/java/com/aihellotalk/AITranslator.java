@@ -1933,23 +1933,100 @@ try {
 
     public static boolean needTranslateToChinese(String text) {
         if (text == null || text.trim().isEmpty()) return false;
-        if (containsJapanese(text)) return false;
-        boolean hasChinese = false, hasForeignAlpha = false;
-        for (char c : text.toCharArray()) {
-            if (!hasForeignAlpha && String.valueOf(c).matches("[a-zA-Z\u0430-\u044f\u0410-\u042f\u0451\u0401\u0456\u0406\u0457\u0407\u0454\u0404\u0491\u0490\\uAC00-\\uD7AF\u00e1\u00e9\u00ed\u00f3\u00fa\u00c1\u00c9\u00cd\u00d3\u00da\u00f1\u00d1\u00fc\u00dc\u00e4\u00f6\u00fc\u00df\u00c4\u00d6\u00dc]"))
-                hasForeignAlpha = true;
-            if (!hasChinese) {
-                Character.UnicodeBlock block = Character.UnicodeBlock.of(c);
-                if (block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
-                        || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A
-                        || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B
-                        || block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS) hasChinese = true;
-            }
-            if (hasChinese && hasForeignAlpha) break;
+        for (int i = 0; i < text.length();) {
+            int codePoint = text.codePointAt(i);
+            i += Character.charCount(codePoint);
+            if (Character.isLetter(codePoint) && !isProtectedEastAsianCodePoint(codePoint)) return true;
         }
-        if (!hasChinese) return true;
-        if (hasForeignAlpha) return true;
         return false;
+    }
+
+    private static boolean isProtectedEastAsianCodePoint(int codePoint) {
+        return (codePoint >= 0x3400 && codePoint <= 0x4DBF)
+                || (codePoint >= 0x4E00 && codePoint <= 0x9FFF)
+                || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
+                || (codePoint >= 0x20000 && codePoint <= 0x2FA1F)
+                || (codePoint >= 0x3040 && codePoint <= 0x30FF)
+                || (codePoint >= 0x31F0 && codePoint <= 0x31FF)
+                || (codePoint >= 0xFF65 && codePoint <= 0xFF9F)
+                || (codePoint >= 0x1B000 && codePoint <= 0x1B16F);
+    }
+
+    private static boolean isEastAsianVariationCodePoint(int codePoint) {
+        return (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
+                || (codePoint >= 0xE0100 && codePoint <= 0xE01EF);
+    }
+
+    private static class ProtectedTranslationText {
+        final String original;
+        final String protectedText;
+        final List<String> tokens;
+        final List<String> values;
+
+        ProtectedTranslationText(String original, String protectedText,
+                List<String> tokens, List<String> values) {
+            this.original = original;
+            this.protectedText = protectedText;
+            this.tokens = tokens;
+            this.values = values;
+        }
+    }
+
+    private static ProtectedTranslationText protectEastAsianText(String original) {
+        List<String> tokens = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        StringBuilder protectedText = new StringBuilder();
+        StringBuilder protectedRun = new StringBuilder();
+        String tokenPrefix = "HTAI_KEEP_";
+        while (original.contains("[[" + tokenPrefix)) tokenPrefix = "_" + tokenPrefix;
+
+        for (int i = 0; i < original.length();) {
+            int codePoint = original.codePointAt(i);
+            i += Character.charCount(codePoint);
+            boolean protectedCodePoint = isProtectedEastAsianCodePoint(codePoint)
+                    || (protectedRun.length() > 0 && isEastAsianVariationCodePoint(codePoint));
+            if (protectedCodePoint) {
+                protectedRun.appendCodePoint(codePoint);
+                continue;
+            }
+            if (protectedRun.length() > 0) {
+                appendProtectedRun(protectedText, protectedRun, tokenPrefix, tokens, values);
+            }
+            protectedText.appendCodePoint(codePoint);
+        }
+        if (protectedRun.length() > 0) {
+            appendProtectedRun(protectedText, protectedRun, tokenPrefix, tokens, values);
+        }
+        return new ProtectedTranslationText(original, protectedText.toString(), tokens, values);
+    }
+
+    private static void appendProtectedRun(StringBuilder output, StringBuilder run,
+            String tokenPrefix, List<String> tokens, List<String> values) {
+        String token = "[[" + tokenPrefix + tokens.size() + "]]";
+        tokens.add(token);
+        values.add(run.toString());
+        output.append(token);
+        run.setLength(0);
+    }
+
+    private static String finishProtectedTranslation(String result, ProtectedTranslationText protectedText) {
+        result = refuseGuard(result, protectedText.original);
+        if (result.equals(protectedText.original)) return result;
+        int previousTokenEnd = -1;
+        for (int i = 0; i < protectedText.tokens.size(); i++) {
+            String token = protectedText.tokens.get(i);
+            int first = result.indexOf(token);
+            if (first < previousTokenEnd
+                    || first < 0
+                    || result.indexOf(token, first + token.length()) >= 0) {
+                return protectedText.original;
+            }
+            previousTokenEnd = first + token.length();
+        }
+        for (int i = 0; i < protectedText.tokens.size(); i++) {
+            result = result.replace(protectedText.tokens.get(i), protectedText.values.get(i));
+        }
+        return result;
     }
 
     private static boolean containsForeignLetters(String s) {
@@ -2216,12 +2293,15 @@ private static boolean isDirtyHistoryContent(String content) {
         text = text.trim();
         if (text.isEmpty()) return text;
         if (!needTranslateToChinese(text)) return text;
+        ProtectedTranslationText protectedText = protectEastAsianText(text);
+        String requestText = protectedText.protectedText;
 
         String receiveFormatRule = "\n\n【接收翻译输出格式·最高优先级】\n"
                 + "只输出1个自然中文译文，末尾必须添加一个中文全角括号批注。\n"
                 + "固定结构：中文译文（承接的话题；语气、态度或潜台词）。\n"
                 + "括号只概括话题，不写‘回应对方’、‘回应自己’等人物关系；下方历史中的‘我’是用户，‘对方’是发来当前外语的她。\n"
                 + "话题和潜台词必须依据当前原文及真实上下文，不得编造；无法确定时只写有把握的信息。\n"
+                + "原文中形如 [[HTAI_KEEP_数字]] 或 [[_HTAI_KEEP_数字]] 的标记是必须原样保留、位置不变的文字占位符；禁止翻译、删除、复制、改写或移动。\n"
                 + "括号内总计不超过30个汉字，禁止展开分析；禁止输出前言、解释、建议、多个版本或其他内容。\n";
 
         try {
@@ -2251,16 +2331,22 @@ private static boolean isDirtyHistoryContent(String content) {
             scriptBuilder.append("\n\u3010\u7cfb\u7edf\u6307\u4ee4\u3011\n"
                     + "1. 下方只有<<<和>>>标记内的原文才是要翻译的内容，上面对话剧本仅供理解语境参考，严禁翻译或复述剧本里已有的内容。\n"
                     + "2. 【视角隔离】：你是一个客观的翻译引擎。提到任何国家一律直译全称，绝对不许使用“我国”、“国产”、“你们国家”等代词，提到日本时也绝对不要翻译成“这里”或“我们这里”。\n"
-                    + "<<<\n").append(text).append("\n>>>");
+                    + "<<<\n").append(requestText).append("\n>>>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
-            try { String r = callChatMessages(messages, true); return refuseGuard(r, text); }
-            catch (IOException e) {
-                if (e.getMessage() != null && e.getMessage().contains("400"))
-                    return refuseGuard(fallbackToPureTextRequest(messages, true), text);
-                else throw e;
+            try {
+                return finishProtectedTranslation(callChatMessages(messages, true), protectedText);
+            } catch (IOException e) {
+                if (e.getMessage() != null && e.getMessage().contains("400")) {
+                    return finishProtectedTranslation(fallbackToPureTextRequest(messages, true), protectedText);
+                }
+                throw e;
             }
-        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + text, true), text); }
+        } catch (JSONException e) {
+            return finishProtectedTranslation(
+                    callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + requestText, true),
+                    protectedText);
+        }
     }
 
     public static String fromChinese(String text, String lang) throws IOException {

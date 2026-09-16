@@ -186,7 +186,7 @@ private static final Map<Integer, Set<String>> slotModelsFailed = new Concurrent
 // 每个 API 槽位独立保存模型轮换游标。注意：模型数量绝不会放大 API 权重。
 private static final Map<Integer, Integer> slotModelCursor = new ConcurrentHashMap<>();
 private static volatile int roundRobinIndex = 0;
-private static volatile int persistedNextSlotId = -1;
+private static volatile int persistedNextSlotId = 1;
 private static volatile String rotationConfigFingerprint = "";
 private static volatile long apiConfigModified = -1L;
 private static volatile long apiConfigLength = -1L;
@@ -635,7 +635,7 @@ private static String rotationConfigFingerprint() {
 
 private static void restoreRotationState(String fingerprint) {
     rotationConfigFingerprint = fingerprint;
-    persistedNextSlotId = -1;
+    persistedNextSlotId = 1;
     if (rotationStateFile == null || !rotationStateFile.exists()) return;
     try {
         BufferedReader r = new BufferedReader(new FileReader(rotationStateFile));
@@ -661,11 +661,11 @@ private static void restoreRotationState(String fingerprint) {
         }
         r.close();
         if (!fingerprint.equals(savedFingerprint)) return;
-        persistedNextSlotId = nextSlot;
+        persistedNextSlotId = nextSlot > 0 ? nextSlot : 1;
         slotCallCounts.putAll(savedCounts);
         slotModelCursor.putAll(savedCursors);
     } catch (Throwable ignored) {
-        persistedNextSlotId = -1;
+        persistedNextSlotId = 1;
         slotCallCounts.clear();
         slotModelCursor.clear();
     }
@@ -2759,7 +2759,7 @@ private static String executeRequestWithEitherDirection(OkHttpClient useClient, 
     }
 }
 
-private static String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {
+private static synchronized String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {
     if (emergencyStop) throw new IOException("USER_STOPPED");
     reloadEndpointsIfConfigChanged();
     if (endpoints.isEmpty()) throw new IOException("没有配置任何API端点");
@@ -2779,13 +2779,13 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
     if (slots.isEmpty()) throw new IOException("当前动作对应的方向找不到可用 API");
 
     List<Integer> slotIds = new ArrayList<>(slots.keySet());
-    int slotIndex = roundRobinIndex;
-    if (persistedNextSlotId >= 0) {
-        int restoredIndex = slotIds.indexOf(persistedNextSlotId);
-        slotIndex = restoredIndex >= 0 ? restoredIndex : 0;
-        persistedNextSlotId = -1;
+    int slotIndex = 0;
+    for (int i = 0; i < slotIds.size(); i++) {
+        if (slotIds.get(i) >= persistedNextSlotId) {
+            slotIndex = i;
+            break;
+        }
     }
-    if (slotIndex < 0 || slotIndex >= slotIds.size()) slotIndex = 0;
 
     while (true) {
         if (emergencyStop) throw new IOException("USER_STOPPED");
@@ -2831,14 +2831,19 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                 continue;
             }
 
-            // 真正完整跑完一轮：只清“API权重计数”。
-            // 模型游标不能清，否则多模型 API 会永远从第一个模型开始。
-            slotCallCounts.clear();
-            slotModelsUsed.clear();
-            slotModelsFailed.clear();
-            for (ApiEndpoint ep : endpoints) ep.callCount = 0;
+            // 只重置当前方向可使用的 API。发送轮次不能清掉仅接收 API 的进度，反之亦然。
+            // 发送+接收 API 仍只有一份共用计数；模型游标不能清。
+            for (Integer sid : slotIds) {
+                slotCallCounts.remove(sid);
+                slotModelsUsed.remove(sid);
+                slotModelsFailed.remove(sid);
+                List<ApiEndpoint> list = slots.get(sid);
+                if (list != null) {
+                    for (ApiEndpoint ep : list) ep.callCount = 0;
+                }
+            }
             slotIndex = 0;
-            roundRobinIndex = 0;
+            persistedNextSlotId = slotIds.get(0);
             continue;
         }
 
@@ -2850,7 +2855,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
         // 当前 API 的本轮权重已经耗尽，只移动到下一个 API；不清零。
         if (usedCalls >= slotWeight) {
             slotIndex = (slotIndex + 1) % slotIds.size();
-            roundRobinIndex = slotIndex;
+            persistedNextSlotId = slotIds.get(slotIndex);
             continue;
         }
 
@@ -2902,7 +2907,7 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
                 }
                 if (otherAvailable) {
                     slotIndex = otherIndex;
-                    roundRobinIndex = slotIndex;
+                    persistedNextSlotId = slotIds.get(slotIndex);
                     moved = true;
                     break;
                 }
@@ -2960,14 +2965,14 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             // 成功：只增加该 API 本轮已用次数。绝不在这里清零。
             targetEp.onSuccess();
             slotCallCounts.put(slotId, slotCallCounts.getOrDefault(slotId, 0));
-            roundRobinIndex = slotIndex;
+            persistedNextSlotId = slotId;
 
-            // 当前 API 本轮权重刚好跑完：下一次点译从下一个 API 开始。
+            // 当前 API 本轮权重刚好跑完：下一次请求从下一个适用 API 开始。
             if (slotCallCounts.getOrDefault(slotId, 0) >= slotWeight) {
                 slotIndex = (slotIndex + 1) % slotIds.size();
-                roundRobinIndex = slotIndex;
+                persistedNextSlotId = slotIds.get(slotIndex);
             }
-            saveRotationState(slotIds.get(roundRobinIndex));
+            saveRotationState(persistedNextSlotId);
             return result;
         } catch (Exception e) {
             if (emergencyStop) throw e;
@@ -2980,8 +2985,8 @@ private static String executeRequestWithRotation(JSONObject body, OkHttpClient f
             // 关键：一次点译的实际请求失败，立即结束这一次点译。
             // 不在同一次点击里偷偷换 API/模型重试。
             slotIndex = (slotIndex + 1) % slotIds.size();
-            roundRobinIndex = slotIndex;
-            saveRotationState(slotIds.get(roundRobinIndex));
+            persistedNextSlotId = slotIds.get(slotIndex);
+            saveRotationState(persistedNextSlotId);
             if (e instanceof IOException) {
                 throw (IOException) e;
             }

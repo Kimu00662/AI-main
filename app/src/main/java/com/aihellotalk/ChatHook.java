@@ -1966,7 +1966,6 @@ if ("chat_user_profile".equals(mid)) {
 
                 if (text.startsWith("[")) return;
                 if (isStandaloneAttachmentUrl(text)) return;
-                if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 if (isMine) {
                     /*
@@ -1978,13 +1977,14 @@ if ("chat_user_profile".equals(mid)) {
 
                     if (!ownForeignKey.isEmpty()
                             && !ownForeignKey.startsWith("[")
-                            && !AITranslator.isChineseOnly(ownForeignKey)
-                            && !AITranslator.containsJapanese(ownForeignKey)) {
+                            && AITranslator.hasNonJapaneseForeignLetters(ownForeignKey)) {
                         knownOwnForeignTexts.add(ownForeignKey);
                     }
 
                     return;
                 }
+
+                if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
 
                 // 对方消息：只查缓存，不调API（翻译由 hookTextViewRender 负责）
                 String[] cached = AITranslator.getCached(mid);
@@ -3406,21 +3406,19 @@ if (chatIdInvalid) return;
 
             if (text == null || text.trim().isEmpty()) return;
             text = text.trim();
-            if (text.startsWith("[") || isStandaloneAttachmentUrl(text) || AITranslator.isChineseOnly(text)) return;
+            if (text.startsWith("[") || isStandaloneAttachmentUrl(text)) return;
+
+            if (AITranslator.hasNonJapaneseForeignLetters(text)) {
+                knownOwnForeignTexts.add(text);
+            }
+
+            if (AITranslator.isChineseOnly(text)) return;
 
             if (pendingFriendRegister) {
                 String registrationChatId = newReplyControllerDetected
                         ? currentChatId
                         : chatId;
                 registerPendingFriend(registrationChatId, text);
-            }
-
-            // 记录已经确认由我发出的外语消息。
-            if (!text.isEmpty()
-                    && !text.startsWith("[")
-                    && !AITranslator.isChineseOnly(text)
-                    && !AITranslator.containsJapanese(text)) {
-                knownOwnForeignTexts.add(text);
             }
 
             Object mio = invokeQuiet(mGetMsgId, msg);

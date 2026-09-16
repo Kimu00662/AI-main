@@ -1923,6 +1923,25 @@ try {
         return false;
     }
 
+    public static boolean hasNonJapaneseForeignLetters(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        for (int i = 0; i < text.length();) {
+            int codePoint = text.codePointAt(i);
+            i += Character.charCount(codePoint);
+            if (!Character.isLetter(codePoint)) continue;
+            boolean isChineseOrJapanese = (codePoint >= 0x3400 && codePoint <= 0x4DBF)
+                    || (codePoint >= 0x4E00 && codePoint <= 0x9FFF)
+                    || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
+                    || (codePoint >= 0x20000 && codePoint <= 0x2FA1F)
+                    || (codePoint >= 0x3040 && codePoint <= 0x30FF)
+                    || (codePoint >= 0x31F0 && codePoint <= 0x31FF)
+                    || (codePoint >= 0xFF65 && codePoint <= 0xFF9F)
+                    || (codePoint >= 0x1B000 && codePoint <= 0x1B16F);
+            if (!isChineseOrJapanese) return true;
+        }
+        return false;
+    }
+
     public static boolean needTranslateToChinese(String text) {
         if (text == null || text.trim().isEmpty()) return false;
         if (containsJapanese(text)) return false;

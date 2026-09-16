@@ -162,7 +162,8 @@ private static volatile String pendingSendQuote = null;
     private static volatile boolean lastPickerOneTime = false;
     private static volatile Button versionButton = null;
     private static volatile EditText versionEdit = null;
-    private static volatile EditText clipboardSyncEdit = null;
+    private static volatile EditText translatedDraftEdit = null;
+    private static volatile String translatedDraftChinese = null;
 
     private static class RenderedImageInfo {
         final String path, url, compressedUrl;
@@ -1457,6 +1458,28 @@ if (!AITranslator.canReceiveAny()) return;
                         if (cd.getDescription() != null && "HT_AI_Copy".equals(cd.getDescription().getLabel())) {
                             return;
                         }
+
+                        EditText draftEdit = translatedDraftEdit;
+                        if (draftEdit != null && draftEdit.hasFocus()) {
+                            CharSequence input = draftEdit.getText();
+                            if (input != null && input.toString().equals(ts)) {
+                                if (translatedDraftChinese != null
+                                        && !translatedDraftChinese.trim().isEmpty()) {
+                                    AITranslator.rememberDraft(ts, translatedDraftChinese);
+                                }
+                                return;
+                            }
+
+                            int start = draftEdit.getSelectionStart();
+                            int end = draftEdit.getSelectionEnd();
+                            if (input != null && start >= 0 && end >= 0 && start != end) {
+                                int from = Math.min(start, end);
+                                int to = Math.max(start, end);
+                                String selected = input.subSequence(from, to).toString();
+                                if (selected.equals(ts)) return;
+                            }
+                        }
+
                         String orig = AITranslator.getForeignFuzzy(ts);
                         if (orig == null) {
                             orig = AITranslator.getForeignByChinese(ts);
@@ -2404,16 +2427,9 @@ updateTranslateBtnText(btn);
                 String now = s == null ? "" : s.toString();
                 String selectedForeign = pendingSelectedForeign;
 
-                if (clipboardSyncEdit == edit) {
-                    if (now.isEmpty()) {
-                        clipboardSyncEdit = null;
-                    } else if (selectedForeign == null || !selectedForeign.equals(now)) {
-                        try {
-                            ((android.content.ClipboardManager) edit.getContext()
-                                    .getSystemService(android.content.Context.CLIPBOARD_SERVICE))
-                                    .setPrimaryClip(ClipData.newPlainText("HT_AI_Copy", now));
-                        } catch (Exception ignored) {}
-                    }
+                if (translatedDraftEdit == edit && now.isEmpty()) {
+                    translatedDraftEdit = null;
+                    translatedDraftChinese = null;
                 }
 
                 if (selectedForeign != null && !selectedForeign.equals(now)) {
@@ -3072,7 +3088,8 @@ result = AITranslator.translateForPicker(
                 }
 
                 pendingSelectedForeign = foreign;
-                clipboardSyncEdit = edit;
+                translatedDraftEdit = edit;
+                translatedDraftChinese = cleanChinese;
                 pendingFriendRegister = true;
                 lastPickerResult = result;
                 lastPickerOrig = origChinese;

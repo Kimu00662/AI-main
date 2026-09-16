@@ -26,7 +26,9 @@ import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -164,6 +166,18 @@ private static volatile String pendingSendQuote = null;
     private static volatile EditText versionEdit = null;
     private static volatile EditText translatedDraftEdit = null;
     private static volatile String translatedDraftChinese = null;
+    private static final Map<TextView, BubbleFlipState> bubbleFlipStates =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
+    private static class BubbleFlipState {
+        final String foreign;
+        final String chinese;
+
+        BubbleFlipState(String foreign, String chinese) {
+            this.foreign = foreign;
+            this.chinese = chinese;
+        }
+    }
 
     private static class RenderedImageInfo {
         final String path, url, compressedUrl;
@@ -1370,6 +1384,7 @@ CharSequence cs = (CharSequence) param.args[0];
                 String s = cs.toString();
                 if (s.isEmpty() || s.length() > 5000) return;
                 if (s.endsWith(" 🌐") || s.endsWith(" 🔄")) return;
+                bubbleFlipStates.remove((TextView) param.thisObject);
 
                 // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
@@ -1524,7 +1539,11 @@ if (!AITranslator.canReceiveAny()) return;
                         if (ev.getAction() == MotionEvent.ACTION_UP) {
                             String clean = s.substring(0, s.length() - mark.length()).trim();
                             if (reverseMark.equals(mark)) {
-                                String orig = AITranslator.getForeignByDraftChinese(clean);
+                                BubbleFlipState state = bubbleFlipStates.get(tv);
+                                String orig = state != null && clean.equals(state.chinese)
+                                        ? state.foreign
+                                        : null;
+                                if (orig == null) orig = AITranslator.getForeignByDraftChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignByChinese(clean);
                                 if (orig == null) orig = AITranslator.getForeignFuzzy(clean);
                                 if (orig != null && !orig.equals(clean)) tv.setText(orig + forwardMark);
@@ -1544,7 +1563,10 @@ if (!AITranslator.canReceiveAny()) return;
                                 if (zh != null
                                         && !zh.trim().isEmpty()
                                         && !zh.equals(foreignText)) {
-                                    tv.setText(zh.trim() + reverseMark);
+                                    String chineseText = zh.trim();
+                                    bubbleFlipStates.put(tv,
+                                            new BubbleFlipState(foreignText, chineseText));
+                                    tv.setText(chineseText + reverseMark);
                                     p.setResult(true);
                                     return;
                                 }
@@ -1594,6 +1616,8 @@ if (!AITranslator.canReceiveAny()) return;
 
                                             targetTv.post(() -> {
                                                 try {
+                                                    bubbleFlipStates.put(targetTv,
+                                                            new BubbleFlipState(requestText, chinese));
                                                     targetTv.setText(chinese + reverseMark);
                                                 } catch (Throwable ignored) {}
                                             });

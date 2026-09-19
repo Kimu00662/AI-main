@@ -2232,6 +2232,15 @@ private static boolean isDirtyHistoryContent(String content) {
         return toChinese(text, chatId, true);
     }
 
+    private static synchronized int getReceiveSlotCount() {
+        reloadEndpointsIfConfigChanged();
+        Set<Integer> slots = new HashSet<>();
+        for (ApiEndpoint ep : endpoints) {
+            if (ep.enabled && ep.canReceive()) slots.add(ep.slot);
+        }
+        return slots.size();
+    }
+
     private static String toChinese(String text, String chatId, boolean retryReceive) throws IOException {
         maybeRecheckMode();
         text = text.trim();
@@ -2276,14 +2285,20 @@ private static boolean isDirtyHistoryContent(String content) {
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
             IOException lastError = null;
-            int maxAttempts = retryReceive ? RECEIVE_TRANSLATION_MAX_ATTEMPTS : 1;
+            int receiveSlotCount = retryReceive ? getReceiveSlotCount() : 0;
+            int maxAttempts = retryReceive
+                    ? (receiveSlotCount == 1
+                            ? RECEIVE_TRANSLATION_MAX_ATTEMPTS
+                            : Math.min(RECEIVE_TRANSLATION_MAX_ATTEMPTS, Math.max(1, receiveSlotCount)))
+                    : 1;
+            Set<Integer> attemptedReceiveSlots = receiveSlotCount > 1 ? new HashSet<>() : null;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
                     String result;
                     try {
-                        result = callChatMessages(messages, true);
+                        result = callChatMessages(messages, true, attemptedReceiveSlots);
                     } catch (IOException e) {
-                        if (e.getMessage() != null && e.getMessage().contains("400")) {
+                        if (!retryReceive && e.getMessage() != null && e.getMessage().contains("400")) {
                             result = fallbackToPureTextRequest(messages, true);
                         } else {
                             throw e;
@@ -2303,7 +2318,10 @@ private static boolean isDirtyHistoryContent(String content) {
                 }
             }
             throw lastError != null ? lastError : new IOException("接收翻译失败");
-        } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + text, true), text); }
+        } catch (JSONException e) {
+            if (retryReceive) throw new IOException("接收翻译请求构建失败", e);
+            return refuseGuard(callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + text, true), text);
+        }
     }
 
     private static boolean isRetryableReceiveFailure(IOException error) {
@@ -2312,15 +2330,7 @@ private static boolean isDirtyHistoryContent(String content) {
         if (lower.contains("user_stopped")
                 || lower.contains("没有配置任何api端点")
                 || lower.contains("key未配置")
-                || lower.contains("当前动作对应的方向找不到可用 api")
-                || lower.contains("http 400")
-                || lower.contains("http 401")
-                || lower.contains("http 403")
-                || lower.contains("http 404")
-                || lower.contains("http 405")
-                || lower.contains("http 422")
-                || lower.contains("invalid url")
-                || lower.contains("unexpected url")) {
+                || lower.contains("当前动作对应的方向找不到可用 api")) {
             return false;
         }
         return true;
@@ -2793,6 +2803,11 @@ private static String callChatSimple(String prompt, boolean isReceive) throws IO
 }
 
 private static String callChatMessages(JSONArray messages, boolean isReceive) throws IOException {
+    return callChatMessages(messages, isReceive, null);
+}
+
+private static String callChatMessages(JSONArray messages, boolean isReceive,
+                                       Set<Integer> attemptedReceiveSlots) throws IOException {
     if (endpoints.isEmpty()) throw new IOException("Key未配置");
     try {
         JSONObject body = new JSONObject();
@@ -2800,7 +2815,7 @@ private static String callChatMessages(JSONArray messages, boolean isReceive) th
         body.put("max_tokens", getMaxTokens());
         body.put("temperature", getTemperature());
         body.put("messages", messages);
-            return executeRequest(body, isReceive);
+            return executeRequest(body, isReceive, attemptedReceiveSlots);
         } catch (JSONException e) { throw new IOException("构建失败"); }
     }
     
@@ -2830,6 +2845,11 @@ private static String executeRequest(JSONObject body, boolean isReceive) throws 
     return executeRequestWithRotation(body, null, isReceive);
 }
 
+private static String executeRequest(JSONObject body, boolean isReceive,
+                                     Set<Integer> attemptedReceiveSlots) throws IOException {
+    return executeRequestWithRotation(body, null, isReceive, attemptedReceiveSlots);
+}
+
 private static String executeRequestWith(OkHttpClient useClient, JSONObject body) throws IOException {
     return executeRequestWith(useClient, body, false);
 }
@@ -2847,6 +2867,12 @@ private static String executeRequestWithEitherDirection(OkHttpClient useClient, 
 }
 
 private static synchronized String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {
+    return executeRequestWithRotation(body, forceClient, isReceive, null);
+}
+
+private static synchronized String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient,
+                                                              boolean isReceive,
+                                                              Set<Integer> attemptedReceiveSlots) throws IOException {
     if (emergencyStop) throw new IOException("USER_STOPPED");
     reloadEndpointsIfConfigChanged();
     if (endpoints.isEmpty()) throw new IOException("没有配置任何API端点");
@@ -2856,6 +2882,8 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
         if (!ep.enabled) continue;
         if (isReceive && !ep.canReceive()) continue;
         if (!isReceive && !ep.canSend()) continue;
+        if (isReceive && attemptedReceiveSlots != null
+                && attemptedReceiveSlots.contains(ep.slot)) continue;
         List<ApiEndpoint> list = slots.get(ep.slot);
         if (list == null) {
             list = new ArrayList<>();
@@ -3014,6 +3042,7 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
         }
 
         // 预先移动模型游标：无论成功还是失败，这次实际请求都消耗一个模型位置。
+        if (isReceive && attemptedReceiveSlots != null) attemptedReceiveSlots.add(slotId);
         int targetIndex = candidates.indexOf(targetEp);
         slotModelCursor.put(slotId, (targetIndex + 1) % candidates.size());
 

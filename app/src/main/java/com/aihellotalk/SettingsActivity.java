@@ -229,7 +229,7 @@ public class SettingsActivity extends Activity {
 
         advContentLayout.addView(lab("对方消息翻译等待超时 (秒):"));
         etReceiveTimeout = edit(prefs.getString("receive_timeout", "25"));
-        etReceiveTimeout.setHint("对方外语自动翻译的最长等待秒数，默认25，范围10~300");
+        etReceiveTimeout.setHint("对方外语自动翻译的最长等待秒数，默认25，范围5~300");
         advContentLayout.addView(etReceiveTimeout);
 
         advContentLayout.addView(lab("全局违禁词库 (Banned Words & Symbols):"));
@@ -1152,7 +1152,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         if (recvTimeoutStr.isEmpty()) recvTimeoutStr = "25";
         try {
             int rvt = Integer.parseInt(recvTimeoutStr);
-            if (rvt < 10 || rvt > 300) recvTimeoutStr = "25";
+            if (rvt < 5 || rvt > 300) recvTimeoutStr = "25";
         } catch (NumberFormatException e) { recvTimeoutStr = "25"; }
 
         int selectedPos = spinnerReasoning.getSelectedItemPosition();

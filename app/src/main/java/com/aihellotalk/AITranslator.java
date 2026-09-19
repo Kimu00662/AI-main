@@ -325,7 +325,7 @@ public static int getLiveContextMax() {
 
     public static int getReceiveTimeoutSeconds() {
         int t = readConfigInt("receive_timeout", 25);
-        if (t < 10) t = 10;
+        if (t < 5) t = 5;
         if (t > 300) t = 300;
         return t;
     }

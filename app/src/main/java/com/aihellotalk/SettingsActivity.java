@@ -920,22 +920,24 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
     }
 
     private List<String> autoFetchModels(String key, String baseUrl) throws Exception {
-        String base = baseUrl;
+        String base = baseUrl == null ? "" : baseUrl.trim();
         if (base.endsWith("/chat/completions")) {
             base = base.substring(0, base.length() - "/chat/completions".length());
         }
-        if (base.endsWith("/v1")) {
-            base = base.substring(0, base.length() - 3);
-        } else if (base.endsWith("/v1/")) {
-            base = base.substring(0, base.length() - 4);
-        }
         if (!base.endsWith("/")) base += "/";
 
-        String[] urlsToTry = {
-                base + "v1/models",
-                base + "models",
-                base + "api/models"
-        };
+        List<String> modelUrls = new ArrayList<>();
+        if (base.contains("generativelanguage.googleapis.com/v1beta/openai/")) {
+            modelUrls.add(base + "models");
+        } else {
+            String root = base;
+            if (root.endsWith("/v1/")) root = root.substring(0, root.length() - 3);
+            modelUrls.add(root + "v1/models");
+            modelUrls.add(base + "models");
+            modelUrls.add(base + "api/models");
+        }
+
+        String[] urlsToTry = modelUrls.toArray(new String[0]);
 
         List<String> lastErrors = new ArrayList<>();
         OkHttpClient client = new OkHttpClient.Builder()
@@ -948,6 +950,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                 Request req = new Request.Builder()
                         .url(url)
                         .header("Authorization", "Bearer " + key)
+                        .header("x-goog-api-key", key)
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                         .get()
                         .build();
@@ -956,14 +959,25 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                     if (resp.isSuccessful()) {
                         String s = resp.body().string();
                         JSONObject json = new JSONObject(s);
-                        JSONArray data = json.getJSONArray("data");
                         List<String> models = new ArrayList<>();
-                        for (int i = 0; i < data.length(); i++) {
-                            models.add(data.getJSONObject(i).getString("id"));
+                        JSONArray data = json.optJSONArray("data");
+                        if (data != null) {
+                            for (int i = 0; i < data.length(); i++) {
+                                models.add(data.getJSONObject(i).getString("id"));
+                            }
+                        } else {
+                            JSONArray nativeModels = json.getJSONArray("models");
+                            for (int i = 0; i < nativeModels.length(); i++) {
+                                String name = nativeModels.getJSONObject(i).getString("name");
+                                models.add(name.startsWith("models/") ? name.substring(7) : name);
+                            }
                         }
                         return models;
                     } else {
-                        lastErrors.add(url + " -> HTTP " + resp.code());
+                        String errorBody = resp.body() != null ? resp.body().string().trim() : "";
+                        if (errorBody.length() > 300) errorBody = errorBody.substring(0, 300);
+                        lastErrors.add(url + " -> HTTP " + resp.code()
+                                + (errorBody.isEmpty() ? "" : " " + errorBody));
                     }
                 }
             } catch (Exception e) {

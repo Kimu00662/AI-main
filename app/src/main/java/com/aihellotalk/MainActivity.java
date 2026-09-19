@@ -847,25 +847,29 @@ String out = runRoot(
                     runRoot("grep -v \"^" + s.id + "|||\" /data/data/com.hellotalk/files/htai_friend_cache.txt > /data/local/tmp/htai_fc.tmp 2>/dev/null; "
                             + "mv /data/local/tmp/htai_fc.tmp /data/data/com.hellotalk/files/htai_friend_cache.txt 2>/dev/null; "
                             + "chmod 666 /data/data/com.hellotalk/files/htai_friend_cache.txt 2>/dev/null");
+                    // 同步删除保险箱中的该好友翻译缓存，避免之后恢复保险箱时缓存回来
+                    runRoot("grep -v \"^" + s.id + "|||\" /data/local/tmp/htai_store/htai_friend_cache.txt > /data/local/tmp/htai_fc_store.tmp 2>/dev/null; "
+                            + "mv /data/local/tmp/htai_fc_store.tmp /data/local/tmp/htai_store/htai_friend_cache.txt 2>/dev/null; "
+                            + "chmod 600 /data/local/tmp/htai_store/htai_friend_cache.txt 2>/dev/null");
                     // 重启 HelloTalk，使其丢弃进程内残留的旧缓存
                     runRoot("am force-stop com.hellotalk");
-                }
 
-                String friendsPath = "/data/data/com.hellotalk/files/htai_friends.json";
-                String jsonStr = runRoot("cp " + friendsPath + " /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
-                if (jsonStr != null && !jsonStr.trim().isEmpty()) {
-                    JSONObject friends = new JSONObject(jsonStr);
-                    if (friends.has(s.id)) {
-                        friends.remove(s.id);
+                    String friendsPath = "/data/data/com.hellotalk/files/htai_friends.json";
+                    String jsonStr = runRoot("cp " + friendsPath + " /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
+                    if (jsonStr != null && !jsonStr.trim().isEmpty()) {
+                        JSONObject friends = new JSONObject(jsonStr);
+                        if (friends.has(s.id)) {
+                            friends.remove(s.id);
 
-                        File tempFile = new File(getCacheDir(), "htai_temp_friends.json");
-                        BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
-                        w.write(friends.toString());
-                        w.close();
+                            File tempFile = new File(getCacheDir(), "htai_temp_friends.json");
+                            BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
+                            w.write(friends.toString());
+                            w.close();
 
-                        runRoot("cp " + tempFile.getAbsolutePath() + " " + friendsPath);
-                        runRoot("chmod 666 " + friendsPath);
-                        runRoot("cp " + friendsPath + " /data/local/tmp/htai_store/htai_friends.json 2>/dev/null");
+                            runRoot("cp " + tempFile.getAbsolutePath() + " " + friendsPath);
+                            runRoot("chmod 666 " + friendsPath);
+                            runRoot("cp " + friendsPath + " /data/local/tmp/htai_store/htai_friends.json 2>/dev/null");
+                        }
                     }
                 }
 
@@ -877,7 +881,10 @@ String out = runRoot(
                         messageContainer.removeAllViews();
                     }
                     refreshDrawerList();
-                    Toast.makeText(MainActivity.this, "已彻底抹除与 [" + s.name + "] 的底层记忆", Toast.LENGTH_SHORT).show();
+                    String message = clearCache
+                            ? "已彻底删除 [" + s.name + "] 的记忆和翻译缓存"
+                            : "已清除 [" + s.name + "] 的记忆，翻译缓存和好友列表已保留";
+                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> Toast.makeText(MainActivity.this, "删除失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());

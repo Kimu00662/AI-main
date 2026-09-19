@@ -2222,7 +2222,17 @@ private static boolean isDirtyHistoryContent(String content) {
 
     public static String toChinese(String text) throws IOException { return toChinese(text, "0"); }
 
+    private static final int RECEIVE_TRANSLATION_MAX_ATTEMPTS = 3;
+
     public static String toChinese(String text, String chatId) throws IOException {
+        return toChinese(text, chatId, false);
+    }
+
+    public static String toChineseReceived(String text, String chatId) throws IOException {
+        return toChinese(text, chatId, true);
+    }
+
+    private static String toChinese(String text, String chatId, boolean retryReceive) throws IOException {
         maybeRecheckMode();
         text = text.trim();
         if (text.isEmpty()) return text;
@@ -2265,13 +2275,71 @@ private static boolean isDirtyHistoryContent(String content) {
                     + "<<<\n").append(text).append("\n>>>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
-            try { String r = callChatMessages(messages, true); return refuseGuard(r, text); }
-            catch (IOException e) {
-                if (e.getMessage() != null && e.getMessage().contains("400"))
-                    return refuseGuard(fallbackToPureTextRequest(messages, true), text);
-                else throw e;
+            IOException lastError = null;
+            int maxAttempts = retryReceive ? RECEIVE_TRANSLATION_MAX_ATTEMPTS : 1;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    String result;
+                    try {
+                        result = callChatMessages(messages, true);
+                    } catch (IOException e) {
+                        if (e.getMessage() != null && e.getMessage().contains("400")) {
+                            result = fallbackToPureTextRequest(messages, true);
+                        } else {
+                            throw e;
+                        }
+                    }
+                    if (retryReceive && isRefusalResponse(result)) {
+                        throw new IOException("接收翻译被模型拒绝");
+                    }
+                    return retryReceive ? result : refuseGuard(result, text);
+                } catch (IOException e) {
+                    lastError = e;
+                    if (attempt >= maxAttempts || !isRetryableReceiveFailure(e)) {
+                        throw e;
+                    }
+                    Log.w(TAG, "接收翻译第 " + attempt + " 次失败，准备重试: "
+                            + receiveFailureLabel(e));
+                }
             }
+            throw lastError != null ? lastError : new IOException("接收翻译失败");
         } catch (JSONException e) { return refuseGuard(callChatSimple(receivePrompt + receiveFormatRule + "\n\n" + text, true), text); }
+    }
+
+    private static boolean isRetryableReceiveFailure(IOException error) {
+        String message = error.getMessage();
+        String lower = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (lower.contains("user_stopped")
+                || lower.contains("没有配置任何api端点")
+                || lower.contains("key未配置")
+                || lower.contains("当前动作对应的方向找不到可用 api")
+                || lower.contains("http 400")
+                || lower.contains("http 401")
+                || lower.contains("http 403")
+                || lower.contains("http 404")
+                || lower.contains("http 405")
+                || lower.contains("http 422")
+                || lower.contains("invalid url")
+                || lower.contains("unexpected url")) {
+            return false;
+        }
+        return true;
+    }
+
+    private static String receiveFailureLabel(IOException error) {
+        String message = error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return error.getClass().getSimpleName();
+        }
+        String lower = message.toLowerCase(Locale.ROOT);
+        Matcher status = Pattern.compile("http\\s+(\\d{3})", Pattern.CASE_INSENSITIVE)
+                .matcher(message);
+        if (status.find()) return "HTTP " + status.group(1);
+        if (lower.contains("timeout")) return "timeout";
+        if (lower.contains("接收翻译被模型拒绝")) return "model_refusal";
+        if (lower.contains("json解析失败")) return "invalid_json";
+        if (lower.contains("空数据")) return "empty_response";
+        return error.getClass().getSimpleName();
     }
 
     public static String fromChinese(String text, String lang) throws IOException {

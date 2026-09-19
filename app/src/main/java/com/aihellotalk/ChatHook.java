@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -61,7 +62,8 @@ private static volatile Object currentChatDetailFragment = null;
 
     private static volatile boolean isTranslatingAPI = false;
 
-    private static final Set<String> translating = ConcurrentHashMap.newKeySet();
+    private static final Map<String, CompletableFuture<String>> receiveTranslations =
+            new ConcurrentHashMap<>();
     private static final Set<String> recordedMsgIds = ConcurrentHashMap.newKeySet();
 
     // 记录已经确认由“我”发出的外语消息。
@@ -296,6 +298,13 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
     private static final java.util.concurrent.ExecutorService reverseTranslateExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "HT_AI_ReverseTL");
+                t.setPriority(Thread.MIN_PRIORITY);
+                return t;
+            });
+
+    private static final java.util.concurrent.ExecutorService receiveTranslateExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "HT_AI_ReceiveTL");
                 t.setPriority(Thread.MIN_PRIORITY);
                 return t;
             });
@@ -1423,29 +1432,47 @@ if (!AITranslator.canReceiveAny()) return;
                 // 缓存没命中，丢后台翻译
                 final String ft = s;
                 final String cid = cidNow;
-                final String key = "tv_" + ft;
+                final String key = "tv_" + (cid == null ? "0" : cid) + "\u0001" + ft;
                 final TextView tv = (TextView) param.thisObject;
-                if (!translating.add(key)) return;
-                reverseTranslateExecutor.execute(() -> {
-                    AITranslator.setCallSource("receive");
-                    try {
-                        String t = AITranslator.toChinese(ft, cid);
-                        if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
-                            if (cid != null && !cid.trim().isEmpty() && !"0".equals(cid) && !"null".equalsIgnoreCase(cid)) {
-                                AITranslator.cacheReceived(cid, ft, t);
+                CompletableFuture<String> newTranslation = new CompletableFuture<>();
+                CompletableFuture<String> translation = receiveTranslations.putIfAbsent(
+                        key, newTranslation);
+                if (translation == null) {
+                    translation = newTranslation;
+                    receiveTranslateExecutor.execute(() -> {
+                        AITranslator.setCallSource("receive");
+                        try {
+                            String t = AITranslator.toChineseReceived(ft, cid);
+                            if (t != null && !t.trim().isEmpty() && !t.equals(ft)) {
+                                if (cid != null && !cid.trim().isEmpty() && !"0".equals(cid) && !"null".equalsIgnoreCase(cid)) {
+                                    AITranslator.cacheReceived(cid, ft, t);
+                                } else {
+                                    AITranslator.cacheResult(key, ft, t);
+                                }
+                                newTranslation.complete(t);
                             } else {
-                                AITranslator.cacheResult(key, ft, t);
+                                newTranslation.completeExceptionally(
+                                        new IllegalStateException("接收翻译没有返回有效译文"));
                             }
-                            tv.post(() -> {
-                                try { tv.setText(t + " 🔄"); } catch (Throwable ignored) {}
-                            });
+                        } catch (Throwable error) {
+                            log("接收翻译失败: chatId=" + cid
+                                    + " textHash=" + Integer.toHexString(ft.hashCode())
+                                    + " error=" + error.getClass().getSimpleName());
+                            newTranslation.completeExceptionally(error);
+                        } finally {
+                            AITranslator.clearCallSource();
+                            receiveTranslations.remove(key, newTranslation);
                         }
-                    } catch (Throwable ignored) {
-                    } finally {
-                        AITranslator.clearCallSource();
-                        translating.remove(key);
-                    }
-                });
+                    });
+                }
+                translation.thenAccept(t -> tv.post(() -> {
+                    try {
+                        CharSequence current = tv.getText();
+                        if (current != null && ft.equals(current.toString())) {
+                            tv.setText(t + " 🔄");
+                        }
+                    } catch (Throwable ignored) {}
+                }));
             } catch (Throwable ignored) {}
         }
     };

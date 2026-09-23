@@ -330,6 +330,8 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         try { hookClipboard(cl); } catch (Throwable ignored) {}
         try { hookBubbleFlip(cl); } catch (Throwable ignored) {}
         try { hookStartChat(cl); } catch (Throwable ignored) {}
+        // ===== 6.0.90 专用注册（函数内部自检，非 6.0.90 直接返回）=====
+        try { hookStartChat6090(cl); } catch (Throwable ignored) {}
         try { hookRecv(cl); } catch (Throwable ignored) {}
         try { hookLang(cl); } catch (Throwable ignored) {}
         try { hookBtnOld(cl); } catch (Throwable ignored) {}
@@ -506,7 +508,7 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
             if (compressedName != null && infoName.contains(compressedName)) return info.path;
         }
     }
-    return null;
+    return "[对方发送了一张图片]";  // <-- 改成这一行
 }
 
 // ===== 新版 6.4.0 图片真实本地路径 =====
@@ -629,15 +631,9 @@ private static boolean refreshSelectedReplyFromNewController() {
 
     try {
         // 新版逆向确认：
-        // 6.4.0: m4t.f() = obtainReplyMsg
-        // 6.0.90: y01.l0.q() = obtainReplyMsg
+        // m4t.f() = obtainReplyMsg
         // 它返回的就是“输入框此刻真正引用的 HTIMMessage”
-        Object msg;
-        try {
-            msg = XposedHelpers.callMethod(controller, "f");
-        } catch (Throwable noF) {
-            msg = XposedHelpers.callMethod(controller, "q");
-        }
+        Object msg = XposedHelpers.callMethod(controller, "f");
 
         // 当前已经取消回复 / 根本没有回复对象
         if (msg == null) {
@@ -843,13 +839,16 @@ if (selectedReplyValid
         currentQuotedImageMissing = false;
     }
 // ===== 新版 HelloTalk：直接从新版 HTIMMessage 读取文字 =====
-// 只给 buildNewLiveChatContext() / buildHt6090LiveChatContext() 使用。
+// 只给 buildNewLiveChatContext() 使用。
 // 不调用旧版通用消息解析器，避免影响旧版 HelloTalk。
 private static String extractNewLiveMessageText(Object msg, boolean mine) {
     if (msg == null) return null;
 
     try {
-        String msgType = htMessageType(msg);
+        Object typeObj = XposedHelpers.callMethod(msg, "M");
+        String msgType = typeObj != null
+                ? String.valueOf(typeObj)
+                : "";
 
         if ("text".equals(msgType)) {
             Class<?> textBeanClass = XposedHelpers.findClassIfExists(
@@ -857,12 +856,9 @@ private static String extractNewLiveMessageText(Object msg, boolean mine) {
                     hostClassLoader
             );
             if (textBeanClass == null) return null;
-            Object bean = htMessageContent(msg, textBeanClass);
+            Object bean = XposedHelpers.callMethod(msg, "B", textBeanClass);
             if (bean == null) return null;
             Object text = readFieldQuiet(bean, "text");
-            if (text == null) {
-                try { text = XposedHelpers.callMethod(bean, "getText"); } catch (Throwable ignored) {}
-            }
             if (text == null) text = readFieldQuiet(bean, "reportText");
             if (text == null) {
                 try { text = XposedHelpers.callMethod(bean, "u"); } catch (Throwable ignored) {}
@@ -880,9 +876,8 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
         if (imageBeanClass == null) {
             return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
         }
-        Object bean = htMessageContent(msg, imageBeanClass);
+        Object bean = XposedHelpers.callMethod(msg, "B", imageBeanClass);
         String lp = getImageFileForNewMsg(msg);
-        if (lp == null) lp = getImageFileForHt6090(msg);
         if (lp == null) lp = bruteFindLocalImagePathFromBean(bean);
         if (lp != null && new File(lp).exists()) {
             return "[LOCAL_IMAGE:" + lp + "]";
@@ -901,7 +896,11 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
                 return null;
             }
 
-            Object bean = htMessageContent(msg, transBeanClass);
+            Object bean = XposedHelpers.callMethod(
+                    msg,
+                    "B",
+                    transBeanClass
+            );
 
             if (bean == null) {
                 return null;
@@ -929,35 +928,6 @@ if ("image".equals(msgType) || "photo".equals(msgType)) {
 
     } catch (Throwable ignored) {}
 
-    return null;
-}
-
-// ===== 新版消息内容读取：兼容 6.4.0(混淆名) 与 6.0.90(未混淆) =====
-// 6.4.0: HTIMMessage.M()=getMsgType, B(Class)=getMessageContent
-// 6.0.90: HTIMMessage.getMsgType(), getMessageContent(Class, boolean)
-// 先试 6.4.0 方法名，失败回退 6.0.90；两条路径都不影响对方版本。
-private static String htMessageType(Object msg) {
-    if (msg == null) return "";
-    try {
-        Object t = XposedHelpers.callMethod(msg, "M");
-        if (t != null) return String.valueOf(t);
-    } catch (Throwable ignored) {}
-    try {
-        Object t = XposedHelpers.callMethod(msg, "getMsgType");
-        if (t != null) return String.valueOf(t);
-    } catch (Throwable ignored) {}
-    return "";
-}
-
-private static Object htMessageContent(Object msg, Class<?> beanClass) {
-    if (msg == null || beanClass == null) return null;
-    try {
-        Object bean = XposedHelpers.callMethod(msg, "B", beanClass);
-        if (bean != null) return bean;
-    } catch (Throwable ignored) {}
-    try {
-        return XposedHelpers.callMethod(msg, "getMessageContent", beanClass, false);
-    } catch (Throwable ignored) {}
     return null;
 }
 
@@ -2117,59 +2087,59 @@ new Thread(() -> {
     } catch (Throwable t) {
         log("新版 ChatDetailFragment.H3 Hook 注册失败: " + t.getMessage());
     }
+}
 
-    // ===== 6.0.90：聊天详情页（与 6.4.0 同源，Fragment 结构重写）=====
+// ===== 6.0.90 专用：聊天详情页 + 回复控制器 hook =====
+// 独立函数，与 5.7.0/6.4.0 的 hookStartChat() 完全分开。
+private static void hookStartChat6090(ClassLoader cl) {
+    // 仅在确认是本版本 6.0.90 时进入（三重标志：q01.a + a41.c + y01.l0）
+    Class<?> frag6090 = XposedHelpers.findClassIfExists(
+            "com.hellotalk.talk.detail.fragment.ChatDetailFragment", cl);
+    boolean is6090 = frag6090 != null
+            && XposedHelpers.findClassIfExists("q01.a", cl) != null
+            && XposedHelpers.findClassIfExists("a41.c", cl) != null
+            && XposedHelpers.findClassIfExists("y01.l0", cl) != null;
+    if (!is6090) return;
+
     // 6.0.90 的 ChatDetailFragment 已无 H3()/L3()/Q3()：
     //   chatId 由 viewModel.getChatId() 提供；消息列表由 getAdapter() -> q01.a 提供。
-    // 这里只在 6.0.90 生效，5.7.0/6.4.0 完全不进入。
     try {
-        Class<?> frag6090 = XposedHelpers.findClassIfExists(
-                "com.hellotalk.talk.detail.fragment.ChatDetailFragment", cl);
-        boolean is6090 = frag6090 != null
-                && XposedHelpers.findClassIfExists("q01.a", cl) != null
-                && XposedHelpers.findClassIfExists("a41.c", cl) != null
-                && XposedHelpers.findClassIfExists("y01.l0", cl) != null;
+        XposedBridge.hookAllMethods(frag6090, "onResume", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    currentChatDetailFragment = p.thisObject;
 
-        if (is6090) {
-            XposedBridge.hookAllMethods(frag6090, "onResume", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam p) {
-                    try {
-                        currentChatDetailFragment = p.thisObject;
+                    Object vm = XposedHelpers.callMethod(p.thisObject, "getViewModel");
+                    if (vm == null) return;
+                    Object cidObj = XposedHelpers.callMethod(vm, "getChatId");
+                    if (!(cidObj instanceof Integer)) return;
+                    int cid = (Integer) cidObj;
+                    if (cid <= 0) return;
 
-                        Object vm = XposedHelpers.callMethod(p.thisObject, "getViewModel");
-                        if (vm == null) return;
-                        Object cidObj = XposedHelpers.callMethod(vm, "getChatId");
-                        if (!(cidObj instanceof Integer)) return;
-                        int cid = (Integer) cidObj;
-                        if (cid <= 0) return;
-
-                        String newChatId = String.valueOf(cid);
-                        if (!newChatId.equals(currentChatId)) {
-                            currentChatId = newChatId;
-                            latestNationality = "";
-                            latestNativeLang = 1;
-                            latestPartnerName = "";
-                            currentPartnerName = "";
-                            currentQuotedImagePath = null;
-                            currentQuotedImageMissing = false;
-                            resetSelectedReply();
-                            log("6.0.90 ChatDetailFragment.onResume chatId = " + newChatId);
-                        }
-                    } catch (Throwable t) {
-                        log("6.0.90 onResume 读取失败: " + t.getMessage());
+                    String newChatId = String.valueOf(cid);
+                    if (!newChatId.equals(currentChatId)) {
+                        currentChatId = newChatId;
+                        latestNationality = "";
+                        latestNativeLang = 1;
+                        latestPartnerName = "";
+                        currentPartnerName = "";
+                        currentQuotedImagePath = null;
+                        currentQuotedImageMissing = false;
+                        resetSelectedReply();
+                        log("6.0.90 ChatDetailFragment.onResume chatId = " + newChatId);
                     }
+                } catch (Throwable t) {
+                    log("6.0.90 onResume 读取失败: " + t.getMessage());
                 }
-            });
-            log("6.0.90 ChatDetailFragment.onResume Hook 注册成功");
-        }
+            }
+        });
+        log("6.0.90 ChatDetailFragment.onResume Hook 注册成功");
     } catch (Throwable t) {
         log("6.0.90 ChatDetailFragment Hook 注册失败: " + t.getMessage());
     }
 
-    // ===== 6.0.90：回复控制器（对应 6.4.0 的 m4t）=====
     // 6.0.90 的 TalkReplyController(y01.l0)：s(HTIMMessage)=updateReplyMode，q()=obtainReplyMsg。
-    // 只在 6.0.90 生效，不影响 5.7.0/6.4.0 的 m4t 路径。
     try {
         Class<?> reply6090 = XposedHelpers.findClassIfExists("y01.l0", cl);
         if (reply6090 != null) {

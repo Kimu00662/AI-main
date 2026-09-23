@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main", "master", "feature/termux-proxy" ]
+    branches: [ "main", "master", "feature/termux-proxy", "feature/ht6090" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:

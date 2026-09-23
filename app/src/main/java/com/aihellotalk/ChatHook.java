@@ -1279,6 +1279,30 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
     boolean hideTyping = readStealthConfig("stealth_hide_typing", true);
     boolean hideRead = readStealthConfig("stealth_hide_read", true);
     boolean isNewHt = XposedHelpers.findClassIfExists("m4t", cl) != null;
+    // 6.0.90：与 5.7.0 同源（共用 TalkSingleTitleController），但“发送输入状态”的方法
+    // 从 s0 改名成 v0(byte,boolean)（日志 sendInputIM）；且引入了新架构类
+    // ChatMicFragment / TalkDetailControllerCenter。用多重条件识别，
+    // 保证 5.7.0（这些都不具备）绝不被误判。
+    boolean isHt6090 = false;
+    if (!isNewHt) {
+        boolean hasMicFragment = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.fragment.ChatMicFragment", cl) != null;
+        boolean hasControllerCenter = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.controller.TalkDetailControllerCenter", cl) != null;
+        Class<?> ttc = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.controller.title.TalkSingleTitleController", cl);
+        boolean hasV0 = false;
+        if (ttc != null) {
+            try {
+                ttc.getDeclaredMethod("v0", byte.class, boolean.class);
+                hasV0 = true;
+            } catch (Throwable ignored) {}
+        }
+        isHt6090 = hasMicFragment && hasControllerCenter && hasV0;
+        log("6.0.90 检测: micFragment=" + hasMicFragment
+                + " controllerCenter=" + hasControllerCenter + " v0=" + hasV0
+                + " => isHt6090=" + isHt6090);
+    }
 
     XC_MethodHook kill = new XC_MethodHook() {
         @Override
@@ -1288,7 +1312,7 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
     };
 
     // ===== 旧版：原样保留 =====
-    if (hideTyping) {
+    if (hideTyping && !isHt6090) {
         try {
             Class<?> tc = XposedHelpers.findClassIfExists(
                     "com.hellotalk.talk.detail.controller.title.TalkSingleTitleController", cl);
@@ -1298,7 +1322,24 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
         } catch (Throwable ignored) {}
     }
 
-    if (hideRead) {
+    // ===== 6.0.90：输入状态（与 5.7.0 同源，方法名 s0 -> v0）=====
+    // 6.0.90 与 5.7.0 共用 TalkSingleTitleController，只是“发送输入状态”的方法
+    // 从 s0 改名为 v0（日志 sendInputIM inputType/inputState）。此处只新增分支，
+    // 不影响 5.7.0/6.4.0 的运行路径。
+    if (hideTyping && isHt6090) {
+        try {
+            Class<?> tc = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.controller.title.TalkSingleTitleController", cl);
+            if (tc != null) {
+                XposedBridge.hookAllMethods(tc, "v0", kill);
+                log("6.0.90 输入状态 hook: TalkSingleTitleController.v0");
+            }
+        } catch (Throwable t) {
+            log("6.0.90 输入状态 hook 失败: " + t.getMessage());
+        }
+    }
+
+    if (hideRead && !isHt6090) {
         try {
             Class<?> za = XposedHelpers.findClassIfExists("z10.a", cl);
             if (za != null) {

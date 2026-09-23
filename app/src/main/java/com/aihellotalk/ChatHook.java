@@ -1339,29 +1339,67 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
         }
     }
 
-    // ===== 6.0.90：已读（与 5.7.0 同原理，类/方法名不同）=====
-    // 5.7.0 拦 z10.a/y10.b 的 m/c0/f0；6.0.90 对应 IMConversationServiceImpl
-    // 的“标记会话已读”方法：sendMessageHasRead / flagAllSessionHasRead。
+    // ===== 6.0.90：已读回执（与 5.7.0 同原理）=====
+    // 5.7.0 的隐藏已读拦在“已读请求序列化成字节”这一步：
+    //   e20.c.f()[B -> new byte[0]，z10.a/y10.b 的 m/c0/f0 同层拦截。
+    // 6.0.90 是同一原理，类名不同：已读回执由 IMChatBaseServiceImpl( dc0.b )
+    // 的 I() 入口构造 HasReadRequest( kc0.c )，序列化在 kc0.c.f()[B，
+    // 再经 hc0.e.z() -> di0.e.z([B]) -> di0.c.k([B]) -> WebSocket.send 上行。
+    // 注意：IMConversationServiceImpl( cc0.c ) 的 v1/h0 只清本地未读数，不下发，
+    // 单拦它对方仍能看到已读（上次失败的根因）。
     // 只新增本分支，不影响 5.7.0 / 6.4.0 的运行路径。
     if (hideRead && isHt6090) {
+        // (1) 主拦截：已读回执包体序列化为空，等价于 5.7.0 的 e20.c.f() -> new byte[0]
         try {
-            // 该类被混淆，先用混淆名，找不到时用全限定名兜底
+            Class<?> hasReadReq = XposedHelpers.findClassIfExists("kc0.c", cl);
+            if (hasReadReq != null) {
+                XposedBridge.hookAllMethods(hasReadReq, "f", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) {
+                        p.setResult(new byte[0]);
+                    }
+                });
+                log("6.0.90 已读 hook: kc0.c.f -> empty");
+            } else {
+                log("6.0.90 已读 hook: 未找到 kc0.c( HasReadRequest )");
+            }
+        } catch (Throwable t) {
+            log("6.0.90 已读 hook( f ) 失败: " + t.getMessage());
+        }
+
+        // (2) 兜底拦截：socket 请求发送入口，命中已读回执就不发
+        try {
+            Class<?> sockReq = XposedHelpers.findClassIfExists("hc0.e", cl);
+            if (sockReq != null) {
+                XposedBridge.hookAllMethods(sockReq, "z", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) {
+                        if (p.args != null && p.args.length > 0 && p.args[0] != null
+                                && "kc0.c".equals(p.args[0].getClass().getName())) {
+                            p.setResult(null);
+                        }
+                    }
+                });
+                log("6.0.90 已读 hook: hc0.e.z( HasRead )");
+            }
+        } catch (Throwable t) {
+            log("6.0.90 已读 hook( z ) 失败: " + t.getMessage());
+        }
+
+        // (3) 本地未读清理照旧拦截（不下发，仅去未读气泡），保留原行为
+        try {
             Class<?> conv = XposedHelpers.findClassIfExists("cc0.c", cl);
             if (conv == null) {
                 conv = XposedHelpers.findClassIfExists(
                         "com.hellotalk.lib.im.service.impl.IMConversationServiceImpl", cl);
             }
             if (conv != null) {
-                // sendMessageHasRead / flagSessionHasRead：单会话标记已读
                 XposedBridge.hookAllMethods(conv, "v1", kill);
-                // flagAllSessionHasRead：全部会话标记已读
                 XposedBridge.hookAllMethods(conv, "h0", kill);
                 log("6.0.90 已读 hook: " + conv.getName() + " v1/h0");
-            } else {
-                log("6.0.90 已读 hook: 未找到 IMConversationServiceImpl");
             }
         } catch (Throwable t) {
-            log("6.0.90 已读 hook 失败: " + t.getMessage());
+            log("6.0.90 已读 hook( v1/h0 ) 失败: " + t.getMessage());
         }
     }
 

@@ -1214,7 +1214,7 @@ private static String buildHt6090LiveChatContext(int maxCount) {
                 } catch (Throwable ignored) {}
                 boolean mine = mineObj instanceof Boolean && ((Boolean) mineObj);
 
-                String content = extractNewLiveMessageText(msg, mine);
+                String content = extractHt6090MessageText(msg, mine);
 
                 if (content == null || content.trim().isEmpty()) continue;
                 content = content.trim();
@@ -1233,7 +1233,8 @@ private static String buildHt6090LiveChatContext(int maxCount) {
 
                 added++;
             } catch (Throwable one) {
-                // 单条解析失败跳过，不影响整体
+                log("6.0.90 实时上下文单条解析失败: "
+                        + one.getClass().getSimpleName() + ": " + one.getMessage());
             }
         }
 
@@ -1254,6 +1255,71 @@ private static String buildHt6090LiveChatContext(int maxCount) {
     }
 }
 
+// ===== 6.0.90：按未混淆 HTIMMessage API 读取消息内容 =====
+// 6.0.90 不再使用 6.4.0 的 M()/B()，而是 getMsgType()/getMessageContent()。
+private static String extractHt6090MessageText(Object msg, boolean mine) {
+    if (msg == null) return null;
+
+    try {
+        Object typeObj = XposedHelpers.callMethod(msg, "getMsgType");
+        String msgType = typeObj == null ? "" : String.valueOf(typeObj);
+
+        if ("text".equals(msgType)) {
+            Class<?> textBeanClass = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.text.IMTextBean",
+                    hostClassLoader);
+            if (textBeanClass == null) return null;
+
+            Object bean = XposedHelpers.callMethod(
+                    msg, "getMessageContent", textBeanClass, false);
+            if (bean == null) return null;
+
+            Object text = readFieldQuiet(bean, "text");
+            if (text == null) {
+                try { text = XposedHelpers.callMethod(bean, "getText"); }
+                catch (Throwable ignored) {}
+            }
+            if (text == null) return null;
+
+            String result = String.valueOf(text).trim();
+            return result.isEmpty() ? null : result;
+        }
+
+        if ("image".equals(msgType) || "photo".equals(msgType)) {
+            String path = getImageFileForHt6090(msg);
+            String msgId = "";
+            try { msgId = String.valueOf(XposedHelpers.callMethod(msg, "getMsgId")); }
+            catch (Throwable ignored) {}
+            log("6.0.90 图片解析: msgId=" + msgId + " path=" + path);
+            if (path != null) return "[LOCAL_IMAGE:" + path + "]";
+            return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
+        }
+
+        if ("translate".equals(msgType)) {
+            Class<?> transBeanClass = XposedHelpers.findClassIfExists(
+                    "com.hellotalk.talk.detail.delegate.translate.IMTranslateBean",
+                    hostClassLoader);
+            if (transBeanClass == null) return null;
+
+            Object bean = XposedHelpers.callMethod(
+                    msg, "getMessageContent", transBeanClass, false);
+            if (bean == null) return null;
+
+            Object text = readFieldQuiet(bean, "srcText");
+            if (text == null) {
+                try { text = XposedHelpers.callMethod(bean, "getSrcText"); }
+                catch (Throwable ignored) {}
+            }
+            return text == null ? null : String.valueOf(text).trim();
+        }
+    } catch (Throwable t) {
+        log("6.0.90 消息解析失败: " + t.getClass().getSimpleName()
+                + ": " + t.getMessage());
+    }
+
+    return null;
+}
+
 // ===== 6.0.90：HTIMMessage 对应的本地图片文件 =====
 // 6.0.90 的 ChatFileManager 为 a41.c：
 //   静态字段 c = Companion，Companion.a() -> a41.c 实例，实例.d(HTIMMessage) -> File。
@@ -1270,7 +1336,7 @@ private static String getImageFileForHt6090(Object msg) {
             instance = XposedHelpers.callStaticMethod(mgrClass, "a");
         } catch (Throwable ignored) {}
         if (instance == null) {
-            Object companion = readFieldQuiet(mgrClass, "c");
+            Object companion = XposedHelpers.getStaticObjectField(mgrClass, "c");
             if (companion != null) {
                 instance = XposedHelpers.callMethod(companion, "a");
             }
@@ -1286,6 +1352,84 @@ private static String getImageFileForHt6090(Object msg) {
         }
     } catch (Throwable ignored) {}
     return null;
+}
+
+// ===== 6.0.90：独立的回复对象解析 =====
+// 不调用 applySelectedReply()，避免把 6.0.90 的未混淆 API 混入 6.4.0 路径。
+private static void applySelectedReplyHt6090(Object msg) {
+    if (msg == null) {
+        resetSelectedReply();
+        return;
+    }
+
+    try {
+        Object mineObj = XposedHelpers.callMethod(msg, "isSender");
+        boolean mine = mineObj instanceof Boolean && ((Boolean) mineObj);
+        String type = String.valueOf(XposedHelpers.callMethod(msg, "getMsgType"));
+        String id = String.valueOf(XposedHelpers.callMethod(msg, "getMsgId"));
+        String sender = String.valueOf(XposedHelpers.callMethod(msg, "getSenderName"));
+        String chatId = String.valueOf(XposedHelpers.callMethod(msg, "getChatId"));
+        Object sendTime = XposedHelpers.callMethod(msg, "getSendTime");
+        long time = sendTime instanceof Long ? (Long) sendTime : System.currentTimeMillis();
+
+        if (chatId == null || "0".equals(chatId) || "null".equalsIgnoreCase(chatId)) {
+            chatId = currentChatId;
+        }
+
+        currentQuotedImagePath = null;
+        currentQuotedImageMissing = false;
+        String text = extractHt6090MessageText(msg, mine);
+        String imagePath = null;
+        if ("image".equals(type) || "photo".equals(type)) {
+            imagePath = getImageFileForHt6090(msg);
+            if (imagePath != null) {
+                currentQuotedImagePath = imagePath;
+            } else {
+                currentQuotedImageMissing = true;
+            }
+        }
+
+        selectedReplyMsgType = type;
+        selectedReplyIsMine = mine;
+        selectedReplyMsgId = id;
+        selectedReplySendTime = time;
+        selectedReplySenderName = sender;
+        selectedReplyChatId = chatId;
+        selectedReplyText = text == null || text.isEmpty()
+                ? describeNonTextMessage(type, mine)
+                : text;
+        selectedReplyValid = true;
+
+        log("6.0.90 selectedReply: mine=" + mine + " type=" + type
+                + " imagePath=" + imagePath + " text=" + selectedReplyText);
+    } catch (Throwable t) {
+        resetSelectedReply();
+        log("6.0.90 selectedReply 解析失败: " + t.getClass().getSimpleName()
+                + ": " + t.getMessage());
+    }
+}
+
+private static boolean refreshSelectedReplyHt6090() {
+    Object controller = newReplyController;
+    if (controller == null) {
+        resetSelectedReply();
+        return true;
+    }
+    try {
+        Object msg = XposedHelpers.callMethod(controller, "q");
+        if (msg == null) {
+            resetSelectedReply();
+            log("6.0.90 回复控制器 q(): 当前没有回复对象");
+            return true;
+        }
+        applySelectedReplyHt6090(msg);
+        return true;
+    } catch (Throwable t) {
+        resetSelectedReply();
+        log("6.0.90 回复控制器 q() 读取失败: " + t.getClass().getSimpleName()
+                + ": " + t.getMessage());
+        return true;
+    }
 }
 
     private static void applySelectedReply(Object msg) {
@@ -1457,7 +1601,6 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
             } catch (Throwable ignored) {}
         }
         isHt6090 = hasMicFragment && hasControllerCenter && hasV0;
-        isHt6090Detected = isHt6090;
         log("6.0.90 检测: micFragment=" + hasMicFragment
                 + " controllerCenter=" + hasControllerCenter + " v0=" + hasV0
                 + " => isHt6090=" + isHt6090);
@@ -2100,6 +2243,7 @@ private static void hookStartChat6090(ClassLoader cl) {
             && XposedHelpers.findClassIfExists("a41.c", cl) != null
             && XposedHelpers.findClassIfExists("y01.l0", cl) != null;
     if (!is6090) return;
+    isHt6090Detected = true;
 
     // 6.0.90 的 ChatDetailFragment 已无 H3()/L3()/Q3()：
     //   chatId 由 viewModel.getChatId() 提供；消息列表由 getAdapter() -> q01.a 提供。
@@ -2112,7 +2256,7 @@ private static void hookStartChat6090(ClassLoader cl) {
 
                     Object vm = XposedHelpers.callMethod(p.thisObject, "getViewModel");
                     if (vm == null) return;
-                    Object cidObj = XposedHelpers.callMethod(vm, "getChatId");
+                    Object cidObj = XposedHelpers.callMethod(vm, "obtainChatId");
                     if (!(cidObj instanceof Integer)) return;
                     int cid = (Integer) cidObj;
                     if (cid <= 0) return;
@@ -2152,7 +2296,7 @@ private static void hookStartChat6090(ClassLoader cl) {
                         newReplyController = p.thisObject;
                         Object msg = (p.args != null && p.args.length > 0) ? p.args[0] : null;
                         if (msg != null) {
-                            applySelectedReply(msg);
+                            applySelectedReplyHt6090(msg);
                             log("6.0.90 回复目标捕获: mine=" + selectedReplyIsMine
                                     + " text=" + selectedReplyText);
                         } else {
@@ -2932,7 +3076,11 @@ updateTranslateBtnText(btn);
            
             // 新版 HelloTalk：在点击“译”的这一刻重新读取真正的回复对象。
 // 旧版没有 m4t，所以旧版什么都不会改变。
-refreshSelectedReplyFromNewController();
+if (isHt6090Detected) {
+    refreshSelectedReplyHt6090();
+} else {
+    refreshSelectedReplyFromNewController();
+}
 
 boolean hasSelectedReply = selectedReplyValid;
 boolean selectedReplyMine = selectedReplyIsMine;

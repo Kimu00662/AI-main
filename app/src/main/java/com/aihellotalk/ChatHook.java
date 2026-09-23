@@ -334,6 +334,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         try { hookBtnNew(cl); } catch (Throwable ignored) {}
         try { hookUltimateStealth(cl); } catch (Throwable ignored) {}
         try { hookImageRenderLayer(cl); } catch (Throwable ignored) {}
+        try { hookCleartext(cl); } catch (Throwable ignored) {}
 
 // ===== 新版 HelloTalk：真正的回复控制器 =====
 // 旧版没有 m4t，所以不会影响旧版
@@ -536,6 +537,26 @@ try { hookOutgoingSetMsg(cl); } catch (Throwable ignored) {}
 //
 // 用户真正点“回复某条消息”时才会进入 g()。
 // 点击翻译按钮时再调用 f()，得到输入框当前真正引用的消息。
+private static void hookCleartext(ClassLoader cl) {
+    // 允许明文 HTTP：本机代理（http://127.0.0.1:8765）需要它。
+    // HelloTalk 自身的网络策略默认禁止明文，这里在宿主进程内放行。
+    try {
+        Class<?> cls = XposedHelpers.findClassIfExists(
+                "android.security.net.config.NetworkSecurityPolicy", cl);
+        if (cls != null) {
+            XposedBridge.hookAllMethods(cls, "isCleartextTrafficPermitted", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    p.setResult(true);
+                }
+            });
+            log("已放行明文 HTTP（isCleartextTrafficPermitted）");
+        }
+    } catch (Throwable t) {
+        log("放行明文失败: " + t.getMessage());
+    }
+}
+
 private static void hookNewReplyController(ClassLoader cl) {
     try {
         Class<?> controller = XposedHelpers.findClassIfExists("m4t", cl);

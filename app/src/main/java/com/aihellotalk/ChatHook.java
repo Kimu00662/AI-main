@@ -1339,6 +1339,32 @@ private static Object readFieldQuiet(Object obj, String fieldName) {
         }
     }
 
+    // ===== 6.0.90：已读（与 5.7.0 同原理，类/方法名不同）=====
+    // 5.7.0 拦 z10.a/y10.b 的 m/c0/f0；6.0.90 对应 IMConversationServiceImpl
+    // 的“标记会话已读”方法：sendMessageHasRead / flagAllSessionHasRead。
+    // 只新增本分支，不影响 5.7.0 / 6.4.0 的运行路径。
+    if (hideRead && isHt6090) {
+        try {
+            // 该类被混淆，先用混淆名，找不到时用全限定名兜底
+            Class<?> conv = XposedHelpers.findClassIfExists("cc0.c", cl);
+            if (conv == null) {
+                conv = XposedHelpers.findClassIfExists(
+                        "com.hellotalk.lib.im.service.impl.IMConversationServiceImpl", cl);
+            }
+            if (conv != null) {
+                // sendMessageHasRead / flagSessionHasRead：单会话标记已读
+                XposedBridge.hookAllMethods(conv, "v1", kill);
+                // flagAllSessionHasRead：全部会话标记已读
+                XposedBridge.hookAllMethods(conv, "h0", kill);
+                log("6.0.90 已读 hook: " + conv.getName() + " v1/h0");
+            } else {
+                log("6.0.90 已读 hook: 未找到 IMConversationServiceImpl");
+            }
+        } catch (Throwable t) {
+            log("6.0.90 已读 hook 失败: " + t.getMessage());
+        }
+    }
+
     if (hideRead && !isHt6090) {
         try {
             Class<?> za = XposedHelpers.findClassIfExists("z10.a", cl);

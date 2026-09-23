@@ -31,8 +31,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -1364,6 +1369,36 @@ private static String getImageFileForHt6090(Object msg) {
         }
     } catch (Throwable ignored) {}
     return null;
+}
+
+private static String runHt6090RequestWithTimeout(Callable<String> request) throws Exception {
+    int timeoutSeconds = AITranslator.getRequestTimeoutSeconds();
+    FutureTask<String> task = new FutureTask<>(request);
+    Thread worker = new Thread(task, "HT_AI_6090_REQUEST");
+    worker.start();
+
+    try {
+        return task.get(timeoutSeconds, TimeUnit.SECONDS);
+    } catch (TimeoutException e) {
+        task.cancel(true);
+        log("6.0.90 点译超时，已中断当前请求: seconds=" + timeoutSeconds);
+        throw new java.io.IOException("6.0.90 点译超时（" + timeoutSeconds + "秒）");
+    } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        if (cause instanceof Exception) throw (Exception) cause;
+        throw new java.io.IOException("6.0.90 请求失败", cause);
+    }
+}
+
+private static String askAiQuestionHt6090(String text, String chatId) throws Exception {
+    return runHt6090RequestWithTimeout(
+            () -> AITranslator.askAiQuestionLive(text, chatId));
+}
+
+private static String translateForPickerHt6090(
+        String text, String langCode, String chatId, boolean retry) throws Exception {
+    return runHt6090RequestWithTimeout(
+            () -> AITranslator.translateForPicker(text, langCode, chatId, retry));
 }
 
 private static void requestHt6090ImageDownload(Object msg, boolean rememberAfterDownload) {
@@ -3333,7 +3368,14 @@ if (!pbm && newReplyControllerDetected) {
 // 新版括号问答绝不再读取模块旧 history。
 // 哪怕当前实时上下文只有 0 条、1 条、2 条消息，
 // 没有就回答没有，绝不能拿 chatId 冒充聊天内容。
-if (newReplyControllerDetected) {
+if (isHt6090Detected) {
+
+    answer = askAiQuestionHt6090(
+            ftt,
+            cs
+    );
+
+} else if (newReplyControllerDetected) {
 
     answer = AITranslator.askAiQuestionLive(
             ftt,
@@ -3384,23 +3426,17 @@ if (newReplyControllerDetected
         + "\n\n"
         + ftt;
 
-result = AITranslator.translateForPicker(
-        oldStyleText,
-        tl,
-        cs,
-        retry
-);
+result = isHt6090Detected
+        ? translateForPickerHt6090(oldStyleText, tl, cs, retry)
+        : AITranslator.translateForPickerLive(oldStyleText, tl, cs, retry, flive);
 
 } else {
 
     // 旧版 HelloTalk 或实时列表读取失败：
     // 完全保持原来的旧逻辑。
-    result = AITranslator.translateForPicker(
-            ftt,
-            tl,
-            cs,
-            retry
-    );
+    result = isHt6090Detected
+            ? translateForPickerHt6090(ftt, tl, cs, retry)
+            : AITranslator.translateForPicker(ftt, tl, cs, retry);
 }
                         isTranslatingAPI = false;
                         String fr = result;

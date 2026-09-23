@@ -21,7 +21,9 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.BufferedReader;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -129,6 +131,9 @@ private static void saveLangOverrides() {
 
     private static volatile String currentQuotedImagePath = null;
     private static volatile boolean currentQuotedImageMissing = false;
+    private static final ConcurrentHashMap<String, String> ht6090ImagePaths = new ConcurrentHashMap<>();
+    private static final Set<String> ht6090ImageDownloads = ConcurrentHashMap.newKeySet();
+    private static final Set<String> ht6090RememberImages = ConcurrentHashMap.newKeySet();
 
     // ===== 新增：当前回复条选中的消息 =====
     private static volatile String selectedReplyText = null;
@@ -1216,6 +1221,13 @@ private static String buildHt6090LiveChatContext(int maxCount) {
 
                 String content = extractHt6090MessageText(msg, mine);
 
+                String currentType = String.valueOf(
+                        XposedHelpers.callMethod(msg, "getMsgType"));
+                if (("image".equals(currentType) || "photo".equals(currentType))
+                        && getImageFileForHt6090(msg) == null) {
+                    requestHt6090ImageDownload(msg, false);
+                }
+
                 if (content == null || content.trim().isEmpty()) continue;
                 content = content.trim();
 
@@ -1292,6 +1304,7 @@ private static String extractHt6090MessageText(Object msg, boolean mine) {
             catch (Throwable ignored) {}
             log("6.0.90 图片解析: msgId=" + msgId + " path=" + path);
             if (path != null) return "[LOCAL_IMAGE:" + path + "]";
+            requestHt6090ImageDownload(msg, false);
             return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
         }
 
@@ -1327,29 +1340,97 @@ private static String extractHt6090MessageText(Object msg, boolean mine) {
 private static String getImageFileForHt6090(Object msg) {
     try {
         if (msg == null) return null;
+        String msgId = String.valueOf(XposedHelpers.callMethod(msg, "getMsgId"));
+        String cached = ht6090ImagePaths.get(msgId);
+        if (cached != null && new File(cached).exists() && new File(cached).length() > 0) {
+            return cached;
+        }
 
         Class<?> mgrClass = XposedHelpers.findClassIfExists("a41.c", hostClassLoader);
         if (mgrClass == null) return null;
-
-        Object instance = null;
-        try {
-            instance = XposedHelpers.callStaticMethod(mgrClass, "a");
-        } catch (Throwable ignored) {}
-        if (instance == null) {
-            Object companion = XposedHelpers.getStaticObjectField(mgrClass, "c");
-            if (companion != null) {
-                instance = XposedHelpers.callMethod(companion, "a");
-            }
-        }
+        Object companion = XposedHelpers.getStaticObjectField(mgrClass, "c");
+        if (companion == null) return null;
+        Object instance = XposedHelpers.callMethod(companion, "a");
         if (instance == null) return null;
 
         Object f = XposedHelpers.callMethod(instance, "d", msg);
         if (f instanceof File) {
             File file = (File) f;
             if (file.exists() && file.length() > 0) {
-                return file.getAbsolutePath();
+                String path = file.getAbsolutePath();
+                ht6090ImagePaths.put(msgId, path);
+                return path;
             }
         }
+    } catch (Throwable ignored) {}
+    return null;
+}
+
+private static void requestHt6090ImageDownload(Object msg, boolean rememberAfterDownload) {
+    if (msg == null) return;
+    try {
+        String msgId = String.valueOf(XposedHelpers.callMethod(msg, "getMsgId"));
+        String existing = getImageFileForHt6090(msg);
+        if (existing != null) {
+            if (rememberAfterDownload) {
+                ht6090RememberImages.add(msgId);
+                new Thread(() -> AITranslator.rememberImageNote(
+                        currentChatId, existing, false)).start();
+            }
+            return;
+        }
+
+        Class<?> mgrClass = XposedHelpers.findClassIfExists("a41.c", hostClassLoader);
+        if (mgrClass == null) return;
+        Class<?> imageClass = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.delegate.image.IMImageBean", hostClassLoader);
+        Object bean = XposedHelpers.callMethod(msg, "getMessageContent", imageClass, false);
+        String url = (String) XposedHelpers.callMethod(bean, "getUrl");
+        if (url == null || url.trim().isEmpty()) return;
+
+        if (rememberAfterDownload) ht6090RememberImages.add(msgId);
+        if (!ht6090ImageDownloads.add(msgId)) return;
+
+        Class<?> fnClass = XposedHelpers.findClass(
+                "kotlin.jvm.functions.Function1", hostClassLoader);
+        Object callback = Proxy.newProxyInstance(
+                hostClassLoader,
+                new Class<?>[]{fnClass},
+                new InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) {
+                        if ("invoke".equals(method.getName()) && args != null && args.length > 0) {
+                            String path = args[0] == null ? null : String.valueOf(args[0]);
+                            if (path != null && new File(path).exists()) {
+                                ht6090ImagePaths.put(msgId, path);
+                                currentQuotedImagePath = path;
+                                currentQuotedImageMissing = false;
+                                log("6.0.90 图片下载完成: msgId=" + msgId + " path=" + path);
+                                if (ht6090RememberImages.remove(msgId)) {
+                                    new Thread(() -> AITranslator.rememberImageNote(
+                                            currentChatId, path, false)).start();
+                                }
+                            }
+                            ht6090ImageDownloads.remove(msgId);
+                        }
+                        return kotlinUnit();
+                    }
+                });
+
+        Object companion = XposedHelpers.getStaticObjectField(mgrClass, "c");
+        Object manager = XposedHelpers.callMethod(companion, "a");
+        XposedHelpers.callMethod(manager, "g", msg, url, callback);
+        log("6.0.90 图片下载请求: msgId=" + msgId + " url=" + url);
+    } catch (Throwable t) {
+        log("6.0.90 图片下载请求失败: " + t.getClass().getSimpleName()
+                + ": " + t.getMessage());
+    }
+}
+
+private static Object kotlinUnit() {
+    try {
+        Class<?> unit = XposedHelpers.findClass("kotlin.Unit", hostClassLoader);
+        return XposedHelpers.getStaticObjectField(unit, "INSTANCE");
     } catch (Throwable ignored) {}
     return null;
 }
@@ -1386,6 +1467,7 @@ private static void applySelectedReplyHt6090(Object msg) {
                 currentQuotedImagePath = imagePath;
             } else {
                 currentQuotedImageMissing = true;
+                requestHt6090ImageDownload(msg, true);
             }
         }
 

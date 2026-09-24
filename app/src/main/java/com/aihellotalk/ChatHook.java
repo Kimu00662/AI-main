@@ -2808,22 +2808,6 @@ private static void setBeanField(Object bean, String text) {
         }
     }
 
-    private static void showApiSwitchHint6090(View layout, int index, String model, String url) {
-        if (layout == null) return;
-        if (!AITranslator.readConfigBoolean("show_api_switch_hint", true)) return;
-        final String text = "当前使用：" + (index == 1 ? "主 API" : "备用 API " + index)
-                + "\n模型：" + model;
-        XposedBridge.log("HT_AI 6.0.90 点译实际选中: API=" + index
-                + " model=" + model + " url=" + url);
-        uiHandler.post(() -> {
-            try {
-                Toast.makeText(layout.getContext(), text, Toast.LENGTH_LONG).show();
-            } catch (Throwable t) {
-                XposedBridge.log("HT_AI 6.0.90 API/model 提示显示失败: " + t.getMessage());
-            }
-        });
-    }
-
     private static void showApiSwitchHint(ViewGroup layout, int index, String model, String url) {
         if (layout == null) return;
         if (!AITranslator.readConfigBoolean("show_api_switch_hint", true)) return;
@@ -3386,12 +3370,12 @@ if (!pbm && newReplyControllerDetected) {
                 pendingRetryMode = null;
                 if (rm != null) AITranslator.setRetryMode(rm);
                 AITranslator.setApiSwitchListener((index, model, url) -> {
+                    if (layout == null) return;
                     if (isHt6090Detected) {
-                        showApiSwitchHint6090(edit, index, model, url);
-                    } else {
-                        if (layout == null) return;
-                        showApiSwitchHint(layout, index, model, url);
+                        XposedBridge.log("HT_AI 6.0.90 点译实际选中: API=" + index
+                                + " model=" + model + " url=" + url);
                     }
+                    showApiSwitchHint(layout, index, model, url);
                 });
                 try {
                     if (pbm) {

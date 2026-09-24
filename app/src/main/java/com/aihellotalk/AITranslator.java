@@ -1254,69 +1254,6 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
         return false;
     }
 
-    public static String analyzePureSymbol(String symbolText, String chatId) {
-        if (symbolText == null || symbolText.trim().isEmpty()) return symbolText;
-        if (apiKey == null || apiKey.isEmpty()) return symbolText;
-
-        try {
-            JSONArray messages = new JSONArray();
-            String sysPrompt = receivePrompt + profileBlock(chatId) +
-                    "\n\n\u3010\u8868\u60c5/\u6807\u70b9\u6df1\u5ea6\u5206\u6790\u534f\u8bae\u3011\uff1a" +
-                    "\n1. \u5bf9\u65b9\u521a\u521a\u53d1\u4e86\u4e00\u4e2a\u7eaf\u8868\u60c5/\u6807\u70b9\u7b26\u53f7\uff0c\u6ca1\u6709\u6587\u5b57\u3002" +
-                    "\n2. \u4f60\u7684\u4efb\u52a1\uff1a\u4ed4\u7ec6\u9605\u8bfb\u4e0b\u65b9\u7684\u5bf9\u8bdd\u5386\u53f2\u4e0a\u4e0b\u6587\uff0c\u5224\u65ad\u5bf9\u65b9\u53d1\u8fd9\u4e2a\u8868\u60c5/\u6807\u70b9\u662f\u5728\u56de\u5e94\u6211\u7684\u54ea\u4e00\u53e5\u8bdd\u6216\u54ea\u4e00\u4e2a\u8bdd\u9898\u3002" +
-                    "\n3. \u8f93\u51fa\u683c\u5f0f\uff1a\u53ea\u8f93\u51fa\u4e00\u4e2a\u4e2d\u6587\u5168\u89d2\u62ec\u53f7\u8865\u5728\u539f\u6587\u540e\u9762\uff0c\u62ec\u53f7\u5185\u683c\u5f0f\u4e3a\uff1a\uff08\u88ab\u6211\u7684xx\u8bdd\u9898/xx\u8bdd + \u60c5\u7eea\u53cd\u5e94\uff09\uff0c\u62ec\u53f7\u5185\u4e25\u683c\u4e0d\u8d85\u8fc720\u5b57\u3002" +
-                    "\n4. \u5fc5\u987b\u8bf4\u6e05\u695a\u662f\u88ab\"\u6211\"\u7684\u4ec0\u4e48\u5185\u5bb9\u89e6\u53d1\u7684\u3002" +
-                    "\n5. \u4e0d\u8981\u8f93\u51fa\u4efb\u4f55\u5176\u4ed6\u5185\u5bb9\uff0c\u4e0d\u8981\u7ffb\u8bd1\uff0c\u4e0d\u8981\u89e3\u91ca\uff0c\u53ea\u8f93\u51fa\u539f\u7b26\u53f7+\u62ec\u53f7\u3002";
-
-            messages.put(createMessageObj("system", sysPrompt));
-
-            JSONArray fullHistory = loadHistory(chatId);
-            StringBuilder scriptBuilder = new StringBuilder();
-
-            scriptBuilder.append("\u3010\u6700\u8fd1\u5bf9\u8bdd\u4e0a\u4e0b\u6587\u3011\n");
-            int maxChatMessages = getMaxChatMessages();
-            int startIdx = Math.max(0, fullHistory.length() - maxChatMessages);
-            boolean hasContext = false;
-            for (int i = startIdx; i < fullHistory.length(); i++) {
-                JSONObject msg = fullHistory.getJSONObject(i);
-                String role = msg.optString("role", "");
-                String content = msg.optString("content", "");
-                String prefix = msg.optBoolean("oneTime", false) ? "[一次性上下文] " : "";
-                if ("user".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u5bf9\u65b9", content, "\u4e2d\u6587\u610f\u601d")); hasContext = true; }
-                else if ("assistant".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u6211", content, "\u4e2d\u6587\u539f\u610f")); hasContext = true; }
-            }
-            if (!hasContext) scriptBuilder.append("\uff08\u6682\u65e0\u6709\u6548\u4e0a\u4e0b\u6587\uff09\n");
-            scriptBuilder.append("\n\u3010\u5bf9\u65b9\u521a\u53d1\u7684\u7eaf\u8868\u60c5/\u6807\u70b9\u7b26\u53f7\u3011\n").append(symbolText);
-
-            messages.put(createMessageObj("user", scriptBuilder.toString()));
-
-            JSONObject body = new JSONObject();
-            body.put("model", model);
-            body.put("max_tokens", 120);
-            body.put("temperature", 0.2);
-            body.put("messages", messages);
-
-            String result = executeRequestWith(getReverseTranslateClient(), body, false);
-            if (result != null && !result.trim().isEmpty()) {
-                String clean = result.trim();
-                String parenPart = "";
-                Matcher pm = Pattern.compile("[\uff08(]([^()\uff08\uff09]{1,25})[\uff09)]").matcher(clean);
-                if (pm.find()) {
-                    parenPart = "\uff08" + pm.group(1).trim() + "\uff09";
-                } else {
-                    if (!clean.startsWith("\uff08") && !clean.startsWith("(")) clean = "\uff08" + clean;
-                    if (!clean.endsWith("\uff09") && !clean.endsWith(")")) clean = clean + "\uff09";
-                    clean = clean.replace("(", "\uff08").replace(")", "\uff09");
-                    if (clean.length() > 30) clean = clean.substring(0, 30);
-                    parenPart = clean;
-                }
-                return symbolText + " " + parenPart;
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "\u8868\u60c5\u5206\u6790\u5931\u8d25: " + e.getMessage());
-        }
-        return symbolText;
-    }
 private static OkHttpClient getReceiveClient() {
     if (receiveClient == null) {
         synchronized (AITranslator.class) {

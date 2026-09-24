@@ -1317,7 +1317,7 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
         new Thread(() -> {
             try {
                 String modelList = prefs.getString("model_list", "");
-                String cfg = "cat > /data/local/tmp/htai_config.txt << 'EOF'\n"
+                String cfg = "cat > /data/local/tmp/htai_config.txt.tmp << 'EOF'\n"
                         + "api_key=" + key + "\n"
                         + "api_url=" + url + "\n"
                         + "model=" + mdl + "\n"
@@ -1389,10 +1389,11 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 + "stealth_hide_typing=" + prefs.getBoolean("stealth_hide_typing", true) + "\n"
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
-+ "EOF\n";
++ "EOF\n"
++ "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";
                 runRoot(cfg);
 
-                String prompts = "cat > /data/local/tmp/htai_prompts.txt << 'EOF'\n"
+                String prompts = "cat > /data/local/tmp/htai_prompts.txt.tmp << 'EOF'\n"
                         + "###ZH###\n" + zh + "\n"
                         + "###EN###\n" + en + "\n"
                         + "###RU###\n" + ru + "\n"
@@ -1409,7 +1410,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
                         + "###PL###\n" + pl + "\n"
                         + "###KK###\n" + kk + "\n"
                         + "###CS###\n" + cs + "\n"
-                        + "EOF\n";
+                        + "EOF\n"
+                        + "mv /data/local/tmp/htai_prompts.txt.tmp /data/local/tmp/htai_prompts.txt\n";
                 runRoot(prompts);
 
                 runRoot("chmod 644 /data/local/tmp/htai_config.txt /data/local/tmp/htai_prompts.txt");

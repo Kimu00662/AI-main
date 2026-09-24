@@ -1405,7 +1405,7 @@ private static String runHt6090RequestWithTimeout(Callable<String> request) thro
         String bannedSummary = "空";
         if (bannedCfg != null && !bannedCfg.isEmpty()) {
             int n = 0;
-            for (String p : bannedCfg.split(",")) {
+            for (String p : bannedCfg.split("[,，]")) {
                 if (!p.trim().isEmpty()) n++;
             }
             bannedSummary = n + "项";

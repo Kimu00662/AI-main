@@ -935,7 +935,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
             if (root.endsWith("/v1/")) root = root.substring(0, root.length() - 3);
             modelUrls.add(root + "v1/models");
             modelUrls.add(root + "models");
-            modelUrls.add(base + "api/models");
+            modelUrls.add(root + "api/models");
         }
 
         String[] urlsToTry = modelUrls.toArray(new String[0]);
@@ -948,13 +948,13 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
 
         for (String url : urlsToTry) {
             try {
-                Request req = new Request.Builder()
+                Request.Builder rb = new Request.Builder()
                         .url(url)
                         .header("Authorization", "Bearer " + key)
-                        .header("x-goog-api-key", key)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .get()
-                        .build();
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                // x-goog-api-key 仅发给谷歌端点：中转站带上它会导致获取失败（2026-09-24 排查结论）。
+                if (url.contains("googleapis.com")) rb.header("x-goog-api-key", key);
+                Request req = rb.get().build();
 
                 try (Response resp = client.newCall(req).execute()) {
                     if (resp.isSuccessful()) {

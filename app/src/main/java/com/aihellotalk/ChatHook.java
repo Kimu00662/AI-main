@@ -1371,6 +1371,25 @@ private static String getImageFileForHt6090(Object msg) {
     return null;
 }
 
+private static String readHt6090ConfigValue(String key) {
+    try {
+        File f = new File("/data/local/tmp/htai_config.txt");
+        if (!f.exists()) return null;
+        BufferedReader r = new BufferedReader(new FileReader(f));
+        String line;
+        while ((line = r.readLine()) != null) {
+            line = line.trim();
+            if (line.startsWith(key + "=")) {
+                String v = line.substring(key.length() + 1).trim();
+                r.close();
+                return v;
+            }
+        }
+        r.close();
+    } catch (Exception ignored) {}
+    return null;
+}
+
 private static String runHt6090RequestWithTimeout(Callable<String> request) throws Exception {
     int timeoutSeconds = AITranslator.getRequestTimeoutSeconds();
     // 6.0.90 请求跑在独立线程：AITranslator 用 ThreadLocal 标记“本次是点译请求”，
@@ -1379,7 +1398,23 @@ private static String runHt6090RequestWithTimeout(Callable<String> request) thro
     FutureTask<String> task = new FutureTask<>(() -> {
         AITranslator.setCallSource("picker");
         if (retryModeSnapshot != null) AITranslator.setRetryMode(retryModeSnapshot);
-        log("6.0.90 点译请求线程启动: timeout=" + timeoutSeconds + "s");
+        String ctxCfg = readHt6090ConfigValue("max_chat_messages");
+        String tempCfg = readHt6090ConfigValue("temperature");
+        String tokenCfg = readHt6090ConfigValue("max_tokens");
+        String bannedCfg = readHt6090ConfigValue("banned_words");
+        String bannedSummary = "空";
+        if (bannedCfg != null && !bannedCfg.isEmpty()) {
+            int n = 0;
+            for (String p : bannedCfg.split(",")) {
+                if (!p.trim().isEmpty()) n++;
+            }
+            bannedSummary = n + "项";
+        }
+        log("6.0.90 点译请求线程启动: timeout=" + timeoutSeconds + "s"
+                + " 上下文条数=" + (ctxCfg == null ? "未设置" : ctxCfg)
+                + " 温度=" + (tempCfg == null ? "未设置" : tempCfg)
+                + " 最大输出=" + (tokenCfg == null ? "未设置" : tokenCfg)
+                + " 违禁词=" + bannedSummary);
         try {
             return request.call();
         } finally {

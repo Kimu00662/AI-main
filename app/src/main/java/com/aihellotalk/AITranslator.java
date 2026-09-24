@@ -8,6 +8,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.widget.Toast;
 
+import de.robv.android.xposed.XposedBridge;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -469,7 +471,10 @@ private static String getReasoningEffort() {
     public static void rememberImageNote(String chatId, String imagePath, boolean isMineImage) {
         try {
             if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equals(chatId)) return;
-            if (!hasUsableEndpoint()) return;
+            if (!hasUsableEndpoint()) {
+                XposedBridge.log("HT_AI 图片记忆跳过: 没有可用的 API 端点");
+                return;
+            }
             if (imagePath == null || imagePath.isEmpty()) return;
             File f = new File(imagePath);
             if (!f.exists() || f.length() <= 0) return;
@@ -500,9 +505,15 @@ private static String getReasoningEffort() {
             body.put("messages", messages);
 
             String desc = executeRequestWith(getReverseTranslateClient(), body, false);
-            if (desc == null) return;
+            if (desc == null) {
+                XposedBridge.log("HT_AI 图片记忆失败: 识别请求没有返回");
+                return;
+            }
             desc = desc.trim().replaceAll("\\s+", " ").replace("*", "");
-            if (desc.isEmpty() || isRefusalResponse(desc)) return;
+            if (desc.isEmpty() || isRefusalResponse(desc)) {
+                XposedBridge.log("HT_AI 图片记忆失败: 识别结果为空或被拒绝");
+                return;
+            }
             if (desc.length() > 200) desc = desc.substring(0, 200);
 
             String who = isMineImage ? "我" : "对方";
@@ -510,9 +521,9 @@ private static String getReasoningEffort() {
             String noteMsgId = "imgnote_" + Math.abs((imagePath + "_" + f.length()).hashCode());
             long ts = System.currentTimeMillis();
             appendHistory(chatId, noteMsgId, isMineImage ? "assistant" : "user", note, ts, null, false);
-            Log.i(TAG, "图片记忆已写入: " + dedupeMark);
+            XposedBridge.log("HT_AI 图片记忆已写入: " + dedupeMark);
         } catch (Exception e) {
-            Log.w(TAG, "图片记忆失败: " + e.getMessage());
+            XposedBridge.log("HT_AI 图片记忆失败: " + e.getMessage());
         }
     }
 

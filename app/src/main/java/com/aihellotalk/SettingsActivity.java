@@ -28,6 +28,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.concurrent.TimeUnit;
@@ -933,7 +934,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
             String root = base;
             if (root.endsWith("/v1/")) root = root.substring(0, root.length() - 3);
             modelUrls.add(root + "v1/models");
-            modelUrls.add(base + "models");
+            modelUrls.add(root + "models");
             modelUrls.add(base + "api/models");
         }
 
@@ -958,21 +959,27 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                 try (Response resp = client.newCall(req).execute()) {
                     if (resp.isSuccessful()) {
                         String s = resp.body().string();
-                        JSONObject json = new JSONObject(s);
-                        List<String> models = new ArrayList<>();
-                        JSONArray data = json.optJSONArray("data");
-                        if (data != null) {
-                            for (int i = 0; i < data.length(); i++) {
-                                models.add(data.getJSONObject(i).getString("id"));
+                        try {
+                            JSONObject json = new JSONObject(s);
+                            List<String> models = new ArrayList<>();
+                            JSONArray data = json.optJSONArray("data");
+                            if (data != null) {
+                                for (int i = 0; i < data.length(); i++) {
+                                    models.add(data.getJSONObject(i).getString("id"));
+                                }
+                            } else {
+                                JSONArray nativeModels = json.getJSONArray("models");
+                                for (int i = 0; i < nativeModels.length(); i++) {
+                                    String name = nativeModels.getJSONObject(i).getString("name");
+                                    models.add(name.startsWith("models/") ? name.substring(7) : name);
+                                }
                             }
-                        } else {
-                            JSONArray nativeModels = json.getJSONArray("models");
-                            for (int i = 0; i < nativeModels.length(); i++) {
-                                String name = nativeModels.getJSONObject(i).getString("name");
-                                models.add(name.startsWith("models/") ? name.substring(7) : name);
-                            }
+                            return models;
+                        } catch (JSONException je) {
+                            String snippet = s.trim();
+                            if (snippet.length() > 300) snippet = snippet.substring(0, 300);
+                            lastErrors.add(url + " -> 返回无法识别(" + je.getMessage() + "): " + snippet);
                         }
-                        return models;
                     } else {
                         String errorBody = resp.body() != null ? resp.body().string().trim() : "";
                         if (errorBody.length() > 300) errorBody = errorBody.substring(0, 300);

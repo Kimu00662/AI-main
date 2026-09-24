@@ -3000,7 +3000,17 @@ private static void setBeanField(Object bean, String text) {
         final String[] names = {"🌐 自动判断", "英语 English", "西班牙语 Español", "俄语 Русский", "乌克兰语 Українська", "韩语 한국어", "阿拉伯语 العربية", "葡萄牙语 Português", "法语 Français", "德语 Deutsch", "意大利语 Italiano", "土耳其语 Türkçe", "荷兰语 Nederlands", "波兰语 Polski", "哈萨克语 Қазақша", "捷克语 Čeština"};
         
         android.widget.ListView listView = new android.widget.ListView(ctx);
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(ctx, android.R.layout.simple_list_item_1, names);
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(ctx, android.R.layout.simple_list_item_1, names) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View v = super.getView(position, convertView, parent);
+                // 6.0.90 的对话框主题会让默认文字发白；显式深色（本菜单其余控件本就硬编码浅色风格）。
+                if (v instanceof TextView) {
+                    ((TextView) v).setTextColor(Color.parseColor("#333333"));
+                }
+                return v;
+            }
+        };
         listView.setAdapter(adapter);
         root.addView(listView);
 

@@ -3459,9 +3459,10 @@ if (newReplyControllerDetected
         + "\n\n"
         + ftt;
 
+// 6.4.0 等其它新版保持基准行为（translateForPicker）；6.0.90 走专用入口。
 result = isHt6090Detected
         ? translateForPickerHt6090(oldStyleText, tl, cs, retry)
-        : AITranslator.translateForPickerLive(oldStyleText, tl, cs, retry, flive);
+        : AITranslator.translateForPicker(oldStyleText, tl, cs, retry);
 
 } else {
 

@@ -31,13 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -1390,66 +1385,49 @@ private static String readHt6090ConfigValue(String key) {
     return null;
 }
 
-private static String runHt6090RequestWithTimeout(Callable<String> request) throws Exception {
+private static void logHt6090RequestSummary() {
     int timeoutSeconds = AITranslator.getRequestTimeoutSeconds();
-    // 6.0.90 请求跑在独立线程：AITranslator 用 ThreadLocal 标记“本次是点译请求”，
-    // 必须把主线程状态带进工作线程，否则点译的 API/模型提示与重试指令都不会生效。
-    final String retryModeSnapshot = AITranslator.getRetryMode();
-    FutureTask<String> task = new FutureTask<>(() -> {
-        AITranslator.setCallSource("picker");
-        if (retryModeSnapshot != null) AITranslator.setRetryMode(retryModeSnapshot);
-        String ctxCfg = readHt6090ConfigValue("max_chat_messages");
-        String tempCfg = readHt6090ConfigValue("temperature");
-        String tokenCfg = readHt6090ConfigValue("max_tokens");
-        String bannedCfg = readHt6090ConfigValue("banned_words");
-        String bannedSummary = "空";
-        if (bannedCfg != null && !bannedCfg.isEmpty()) {
-            int n = 0;
-            for (String p : bannedCfg.split("[,，]")) {
-                if (!p.trim().isEmpty()) n++;
-            }
-            bannedSummary = n + "项";
+    String ctxCfg = readHt6090ConfigValue("max_chat_messages");
+    String tempCfg = readHt6090ConfigValue("temperature");
+    String tokenCfg = readHt6090ConfigValue("max_tokens");
+    String bannedCfg = readHt6090ConfigValue("banned_words");
+    String bannedSummary = "空";
+    if (bannedCfg != null && !bannedCfg.isEmpty()) {
+        int n = 0;
+        for (String p : bannedCfg.split("[,，]")) {
+            if (!p.trim().isEmpty()) n++;
         }
-        log("6.0.90 点译请求线程启动: timeout=" + timeoutSeconds + "s"
-                + " 上下文条数=" + (ctxCfg == null ? "未设置" : ctxCfg)
-                + " 温度=" + (tempCfg == null ? "未设置" : tempCfg)
-                + " 最大输出=" + (tokenCfg == null ? "未设置" : tokenCfg)
-                + " 违禁词=" + bannedSummary);
-        try {
-            return request.call();
-        } finally {
-            AITranslator.clearCallSource();
-            AITranslator.clearRetryMode();
-        }
-    });
-    Thread worker = new Thread(task, "HT_AI_6090_REQUEST");
-    worker.start();
-
-    try {
-        return task.get(timeoutSeconds, TimeUnit.SECONDS);
-    } catch (TimeoutException e) {
-        task.cancel(true);
-        log("6.0.90 点译超时，已中断当前请求: seconds=" + timeoutSeconds);
-        throw new java.io.IOException("6.0.90 点译超时（" + timeoutSeconds + "秒）");
-    } catch (ExecutionException e) {
-        Throwable cause = e.getCause();
-        log("6.0.90 请求失败: " + (cause != null && cause.getMessage() != null
-                ? cause.getMessage()
-                : (cause == null ? "null" : cause.getClass().getSimpleName())));
-        if (cause instanceof Exception) throw (Exception) cause;
-        throw new java.io.IOException("6.0.90 请求失败", cause);
+        bannedSummary = n + "项";
     }
+    log("6.0.90 点译请求开始: timeout=" + timeoutSeconds + "s"
+            + " 上下文条数=" + (ctxCfg == null ? "未设置" : ctxCfg)
+            + " 温度=" + (tempCfg == null ? "未设置" : tempCfg)
+            + " 最大输出=" + (tokenCfg == null ? "未设置" : tokenCfg)
+            + " 违禁词=" + bannedSummary);
 }
 
+// 与 5.7.0 一致：不额外包装超时；断开交给网络库超时（读取=点译等待超时设置，连接=20秒）。
 private static String askAiQuestionHt6090(String text, String chatId) throws Exception {
-    return runHt6090RequestWithTimeout(
-            () -> AITranslator.askAiQuestionLive(text, chatId));
+    logHt6090RequestSummary();
+    try {
+        return AITranslator.askAiQuestionLive(text, chatId);
+    } catch (Exception e) {
+        log("6.0.90 请求失败: " + (e.getMessage() != null
+                ? e.getMessage() : e.getClass().getSimpleName()));
+        throw e;
+    }
 }
 
 private static String translateForPickerHt6090(
         String text, String langCode, String chatId, boolean retry) throws Exception {
-    return runHt6090RequestWithTimeout(
-            () -> AITranslator.translateForPicker(text, langCode, chatId, retry));
+    logHt6090RequestSummary();
+    try {
+        return AITranslator.translateForPicker(text, langCode, chatId, retry);
+    } catch (Exception e) {
+        log("6.0.90 请求失败: " + (e.getMessage() != null
+                ? e.getMessage() : e.getClass().getSimpleName()));
+        throw e;
+    }
 }
 
 private static void requestHt6090ImageDownload(Object msg, boolean rememberAfterDownload) {

@@ -1303,8 +1303,9 @@ private static String extractHt6090MessageText(Object msg, boolean mine) {
             try { msgId = String.valueOf(XposedHelpers.callMethod(msg, "getMsgId")); }
             catch (Throwable ignored) {}
             log("6.0.90 图片解析: msgId=" + msgId + " path=" + path);
-            if (path != null) return "[LOCAL_IMAGE:" + path + "]";
-            requestHt6090ImageDownload(msg, false);
+            // 与 5.7.0 一致：实时上下文只给文字占位，不发图片。
+            // 图片只有在用户用回复框选中并点译时，才通过 [QUOTED_LOCAL_IMAGE:] 带给 AI。
+            if (path == null) requestHt6090ImageDownload(msg, false);
             return mine ? "[我发送了一张图片]" : "[对方发送了一张图片]";
         }
 

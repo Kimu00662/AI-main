@@ -1433,6 +1433,9 @@ private static String runHt6090RequestWithTimeout(Callable<String> request) thro
         throw new java.io.IOException("6.0.90 点译超时（" + timeoutSeconds + "秒）");
     } catch (ExecutionException e) {
         Throwable cause = e.getCause();
+        log("6.0.90 请求失败: " + (cause != null && cause.getMessage() != null
+                ? cause.getMessage()
+                : (cause == null ? "null" : cause.getClass().getSimpleName())));
         if (cause instanceof Exception) throw (Exception) cause;
         throw new java.io.IOException("6.0.90 请求失败", cause);
     }

@@ -469,7 +469,7 @@ private static String getReasoningEffort() {
     public static void rememberImageNote(String chatId, String imagePath, boolean isMineImage) {
         try {
             if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equals(chatId)) return;
-            if (apiKey == null || apiKey.isEmpty()) return;
+            if (!hasUsableEndpoint()) return;
             if (imagePath == null || imagePath.isEmpty()) return;
             File f = new File(imagePath);
             if (!f.exists() || f.length() <= 0) return;
@@ -772,6 +772,17 @@ private static void reloadEndpointsIfConfigChanged() {
     Log.i(TAG, "HT_AI 检测到 API 配置变化，已重新加载端点");
 }
 
+// 是否配置了任何可用的 API 端点。
+// 注意：不能用顶层 apiKey 判断——用户只用编号槽位（如 3、5 号）时 apiKey 为空，
+// 但那并不代表没有可用 API。
+private static synchronized boolean hasUsableEndpoint() {
+    reloadEndpointsIfConfigChanged();
+    for (ApiEndpoint ep : endpoints) {
+        if (ep.enabled) return true;
+    }
+    return false;
+}
+
 private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
     if (endpoints.isEmpty()) return null;
     int totalAvailable = 0;
@@ -1024,7 +1035,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
 
     private static void distillBatch(String chatId, List<JSONObject> batch) {
         try {
-            if (apiKey == null || apiKey.isEmpty()) return;
+            if (!hasUsableEndpoint()) return;
             long now = System.currentTimeMillis();
             if (now - lastDistillFailTs < DISTILL_COOLDOWN_MS) return;
 
@@ -1594,7 +1605,7 @@ try {
 
     public static String reverseTranslateMyForeign(String foreignText, String chatId) {
         if (foreignText == null || foreignText.trim().isEmpty()) return null;
-        if (apiKey == null || apiKey.isEmpty()) return null;
+        if (!hasUsableEndpoint()) return null;
         if (!hasAnyLetterOrDigit(foreignText)) return null;
         if (isChineseOnly(foreignText)) return null;
 

@@ -1373,7 +1373,20 @@ private static String getImageFileForHt6090(Object msg) {
 
 private static String runHt6090RequestWithTimeout(Callable<String> request) throws Exception {
     int timeoutSeconds = AITranslator.getRequestTimeoutSeconds();
-    FutureTask<String> task = new FutureTask<>(request);
+    // 6.0.90 请求跑在独立线程：AITranslator 用 ThreadLocal 标记“本次是点译请求”，
+    // 必须把主线程状态带进工作线程，否则点译的 API/模型提示与重试指令都不会生效。
+    final String retryModeSnapshot = AITranslator.getRetryMode();
+    FutureTask<String> task = new FutureTask<>(() -> {
+        AITranslator.setCallSource("picker");
+        if (retryModeSnapshot != null) AITranslator.setRetryMode(retryModeSnapshot);
+        log("6.0.90 点译请求线程启动: timeout=" + timeoutSeconds + "s");
+        try {
+            return request.call();
+        } finally {
+            AITranslator.clearCallSource();
+            AITranslator.clearRetryMode();
+        }
+    });
     Thread worker = new Thread(task, "HT_AI_6090_REQUEST");
     worker.start();
 

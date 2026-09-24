@@ -3550,6 +3550,7 @@ public static JSONArray loadHistory(String chatId) {
     public static void appendHistory(String chatId, String msgId, String role, String content, long timestamp, String quotedText, boolean oneTime) {
         if (content == null || content.isEmpty()) return;
         maybeRecheckMode();
+        final String rawContent = content;
         if (quotedText != null && !quotedText.isEmpty()) {
             String who = "assistant".equals(role) ? "\u6211" : "\u5bf9\u65b9";
             content = "\uff08" + who + "\u6b63\u5728\u5f15\u7528/\u56de\u590d\u6b64\u524d\u5bf9\u8bdd\uff1a\"" + quotedText + "\"\uff09\n" + content;
@@ -3562,6 +3563,10 @@ public static JSONArray loadHistory(String chatId) {
                 if (msgId != null && !msgId.isEmpty()) {
                     for (int i = 0; i < history.length(); i++)
                         if (msgId.equals(history.getJSONObject(i).optString("msgId"))) return;
+                }
+                // 一次性消息：写历史时消费发送时登记的名单（放这里可避免两条写入路径重复消费丢标记）。
+                if (!oneTime && "assistant".equals(role)) {
+                    oneTime = consumeSuppressSent(rawContent);
                 }
                 JSONObject entry = new JSONObject();
                 if (msgId != null) entry.put("msgId", msgId);

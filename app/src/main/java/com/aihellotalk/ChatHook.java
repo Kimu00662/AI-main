@@ -3383,10 +3383,14 @@ if (!pbm && newReplyControllerDetected) {
                 AITranslator.markNoHistory(inner);
             }
 
-            if (qis != null) {
-                final String noteChat = cs;
-                final String notePath = qis;
-                final boolean noteMine = selectedReplyMine;
+            final String noteChat = cs;
+            final String notePath = qis;
+            final boolean noteMine = selectedReplyMine;
+            // 6.0.90：图片识别推迟到点译之后，避免它先抢到 API 锁、
+            // 把“当前使用 API/模型”提示压后显示。
+            // 5.7.0/6.4.0 保持原行为：点译前先启动图片识别。
+            final boolean deferImageNote = isHt6090Detected && qis != null;
+            if (qis != null && !deferImageNote) {
                 new Thread(() -> AITranslator.rememberImageNote(noteChat, notePath, noteMine)).start();
             }
 
@@ -3513,6 +3517,9 @@ result = isHt6090Detected
                     AITranslator.clearCallSource();
                     AITranslator.clearEmergencyStop();
                     AITranslator.clearRetryMode();
+                    if (deferImageNote) {
+                        new Thread(() -> AITranslator.rememberImageNote(noteChat, notePath, noteMine)).start();
+                    }
                     // 不要在这里清空全局 apiSwitchListener。
                     // 多次快速点“译”时，上一笔请求的 finally 可能晚于下一笔请求，
                     // 从而把下一笔刚设置好的监听器误清掉，导致第二次点译不显示 API/模型。

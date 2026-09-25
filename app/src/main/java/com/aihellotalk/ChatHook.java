@@ -2474,36 +2474,91 @@ private static void hookStartChat6090(ClassLoader cl) {
 // 用于确定“进页面自动发”的真实入口；待确认后再改为精准拦截。
 private static void hookBlockSayHi6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_block_say_hi", false)) return;
+    // 在多个候选发送点同时挂诊断，一次即可定位真实入口。
+    // 只记录、不拦截，待确认后再改精准拦截。
+    hookDiagNewSticker(cl, "com.hellotalk.talk.helper.s", "c");
+    hookAllMethodsDiagNewSticker(cl, "f11.a");
+    hookDiagNewSticker(cl, "com.hellotalk.talk.detail.fragment.ChatDetailFragment", "sendSayHi");
     try {
         Class<?> vm = XposedHelpers.findClassIfExists(
                 "com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl);
-        if (vm == null) {
-            log("6.0.90 打招呼诊断: 未找到 ChatDetailViewModel");
-            return;
-        }
-        XposedBridge.hookAllMethods(vm, "sendMessage", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam p) {
-                try {
+        if (vm != null) {
+            XposedBridge.hookAllMethods(vm, "sendMessage", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
                     Object a0 = (p.args != null && p.args.length > 0) ? p.args[0] : null;
                     if (!"new_sticker".equals(a0)) return;
-                    StringBuilder sb = new StringBuilder();
-                    StackTraceElement[] st = new Throwable().getStackTrace();
-                    int shown = 0;
-                    for (StackTraceElement e : st) {
-                        String cn = e.getClassName();
-                        if (cn == null || cn.startsWith("de.robv") || cn.startsWith("java.lang")) continue;
-                        sb.append("\n    ").append(cn).append(".").append(e.getMethodName());
-                        if (++shown >= 12) break;
-                    }
-                    log("6.0.90 打招呼发送调用栈:" + sb);
-                } catch (Throwable ignored) {}
+                    logCallStack("ChatDetailViewModel.sendMessage");
+                }
+            });
+        }
+    } catch (Throwable t) {
+        log("6.0.90 打招呼诊断(ChatDetailViewModel) 失败: " + t.getMessage());
+    }
+}
+
+private static void hookDiagNewSticker(ClassLoader cl, String className, String methodName) {
+    try {
+        Class<?> c = XposedHelpers.findClassIfExists(className, cl);
+        if (c == null) {
+            log("6.0.90 打招呼诊断: 未找到 " + className);
+            return;
+        }
+        XposedBridge.hookAllMethods(c, methodName, new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                logCallStack(className + "." + methodName);
             }
         });
-        log("6.0.90 打招呼诊断 Hook 注册成功（不拦截，仅记录调用栈）");
+        log("6.0.90 打招呼诊断 Hook: " + className + "." + methodName);
     } catch (Throwable t) {
-        log("6.0.90 打招呼诊断 Hook 失败: " + t.getMessage());
+        log("6.0.90 打招呼诊断 Hook 失败(" + className + "): " + t.getMessage());
     }
+}
+
+// 给某个类的【所有】方法挂诊断，仅当参数里出现字符串 "new_sticker" 时记录调用栈。
+private static void hookAllMethodsDiagNewSticker(ClassLoader cl, String className) {
+    try {
+        Class<?> c = XposedHelpers.findClassIfExists(className, cl);
+        if (c == null) {
+            log("6.0.90 打招呼诊断: 未找到 " + className);
+            return;
+        }
+        XposedBridge.hookAllMethods(c, "", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                if (!argsContainNewSticker(p.args)) return;
+                logCallStack(className + "." + p.method.getName());
+            }
+        });
+        log("6.0.90 打招呼诊断 Hook(全方法): " + className);
+    } catch (Throwable t) {
+        log("6.0.90 打招呼诊断 Hook(全方法) 失败(" + className + "): " + t.getMessage());
+    }
+}
+
+private static boolean argsContainNewSticker(Object[] args) {
+    if (args == null) return false;
+    for (Object a : args) {
+        if ("new_sticker".equals(a)) return true;
+        if (a instanceof CharSequence && a.toString().contains("new_sticker")) return true;
+    }
+    return false;
+}
+
+private static void logCallStack(String where) {
+    try {
+        StringBuilder sb = new StringBuilder();
+        StackTraceElement[] st = new Throwable().getStackTrace();
+        int shown = 0;
+        for (StackTraceElement e : st) {
+            String cn = e.getClassName();
+            if (cn == null || cn.startsWith("de.robv") || cn.startsWith("java.lang")) continue;
+            sb.append("\n    ").append(cn).append(".").append(e.getMethodName());
+            if (++shown >= 14) break;
+        }
+        log("6.0.90 打招呼发送调用栈 [" + where + "]:" + sb);
+    } catch (Throwable ignored) {}
 }
 
 // ===== 6.0.90：隐身访问主页（不留脚印）=====

@@ -68,7 +68,7 @@ public class SettingsActivity extends Activity {
     private EditText etKey8, etUrl8, etModel8, etWeight8, etAlias8;
     private android.widget.Spinner spinnerDir8, spinnerReasoning8;
     
-    private android.widget.Switch swHideRead, swHideTyping;
+    private android.widget.Switch swHideRead, swHideTyping, swBlockSayHi, swInvisibleVisit;
     private EditText etSearchPrompt;
     private Button btnFetch, btnSave, btnTest;
     private Button btnSearchPrompt;
@@ -443,6 +443,36 @@ swHideTyping = new android.widget.Switch(this);
 swHideTyping.setChecked(prefs.getBoolean("stealth_hide_typing", true));
 rowHideTyping.addView(swHideTyping);
 stealthContentLayout.addView(rowHideTyping);
+
+// 屏蔽打招呼贴纸（6.0.90）
+LinearLayout rowBlockSayHi = new LinearLayout(this);
+rowBlockSayHi.setOrientation(LinearLayout.HORIZONTAL);
+rowBlockSayHi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+rowBlockSayHi.setPadding(0, 10, 0, 10);
+TextView lblBlockSayHi = new TextView(this);
+lblBlockSayHi.setText("屏蔽打招呼贴纸（点打招呼不再自动发贴纸，仅新版生效）");
+lblBlockSayHi.setTextSize(14f);
+lblBlockSayHi.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+rowBlockSayHi.addView(lblBlockSayHi);
+swBlockSayHi = new android.widget.Switch(this);
+swBlockSayHi.setChecked(prefs.getBoolean("stealth_block_say_hi", false));
+rowBlockSayHi.addView(swBlockSayHi);
+stealthContentLayout.addView(rowBlockSayHi);
+
+// 隐身访问主页（6.0.90）
+LinearLayout rowInvisibleVisit = new LinearLayout(this);
+rowInvisibleVisit.setOrientation(LinearLayout.HORIZONTAL);
+rowInvisibleVisit.setGravity(android.view.Gravity.CENTER_VERTICAL);
+rowInvisibleVisit.setPadding(0, 10, 0, 10);
+TextView lblInvisibleVisit = new TextView(this);
+lblInvisibleVisit.setText("隐身访问主页（看对方主页不留访问记录，无需VIP，仅新版生效）");
+lblInvisibleVisit.setTextSize(14f);
+lblInvisibleVisit.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+rowInvisibleVisit.addView(lblInvisibleVisit);
+swInvisibleVisit = new android.widget.Switch(this);
+swInvisibleVisit.setChecked(prefs.getBoolean("stealth_invisible_visit", false));
+rowInvisibleVisit.addView(swInvisibleVisit);
+stealthContentLayout.addView(rowInvisibleVisit);
 
 ll.addView(stealthContentLayout);
 setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵️ 隐身与反检测", "stealth_expanded");
@@ -1308,6 +1338,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("quick_5", q5);
         editor.putBoolean("stealth_hide_read", swHideRead.isChecked());
 editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
+editor.putBoolean("stealth_block_say_hi", swBlockSayHi.isChecked());
+editor.putBoolean("stealth_invisible_visit", swInvisibleVisit.isChecked());
         editor.apply();
 
         final String finalTempStr = tempStr;
@@ -1394,6 +1426,8 @@ editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 + "reasoning_effort_8=" + prefs.getString("reasoning_effort_8", "default") + "\n"
 + "stealth_hide_read=" + prefs.getBoolean("stealth_hide_read", true) + "\n"
 + "stealth_hide_typing=" + prefs.getBoolean("stealth_hide_typing", true) + "\n"
++ "stealth_block_say_hi=" + prefs.getBoolean("stealth_block_say_hi", false) + "\n"
++ "stealth_invisible_visit=" + prefs.getBoolean("stealth_invisible_visit", false) + "\n"
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "EOF\n"

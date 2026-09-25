@@ -2459,6 +2459,53 @@ private static void hookStartChat6090(ClassLoader cl) {
     } catch (Throwable t) {
         log("6.0.90 回复控制器 Hook 注册失败: " + t.getMessage());
     }
+
+    hookBlockSayHi6090(cl);
+    hookInvisibleVisit6090(cl);
+}
+
+// ===== 6.0.90：屏蔽“打招呼”自动发贴纸 =====
+// 逆向：点打招呼 -> ChatDetailFragment$u.a(View) -> access$sendSayHi -> sendSayHi()
+// sendSayHi() 内部 new IMNewStickerBean(helloMsg=2) 后 sendMessage("new_sticker", ...)。
+// 这里直接拦 sendSayHi()，点了不发任何贴纸（按钮仍会随原逻辑隐藏）。
+private static void hookBlockSayHi6090(ClassLoader cl) {
+    if (!readStealthConfig("stealth_block_say_hi", false)) return;
+    try {
+        Class<?> frag = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.fragment.ChatDetailFragment", cl);
+        if (frag == null) return;
+        XposedBridge.hookAllMethods(frag, "sendSayHi", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                p.setResult(null);
+            }
+        });
+        log("6.0.90 屏蔽打招呼贴纸: Hook 注册成功");
+    } catch (Throwable t) {
+        log("6.0.90 屏蔽打招呼贴纸 Hook 失败: " + t.getMessage());
+    }
+}
+
+// ===== 6.0.90：隐身访问主页（不留脚印）=====
+// 逆向：进对方主页 -> OtherProfileViewModel$w -> OtherProfileModel.postProfileVisitorVisitRequest(uid, source)
+//   内部 new pt0/g() -> request() 上报“我访问了你”。
+// 这里直接拦上报方法，不发该请求，对方就看不到访问记录（无需 VIP）。
+private static void hookInvisibleVisit6090(ClassLoader cl) {
+    if (!readStealthConfig("stealth_invisible_visit", false)) return;
+    try {
+        Class<?> model = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.model.OtherProfileModel", cl);
+        if (model == null) return;
+        XposedBridge.hookAllMethods(model, "postProfileVisitorVisitRequest", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam p) {
+                p.setResult(null);
+            }
+        });
+        log("6.0.90 隐身访问主页: Hook 注册成功");
+    } catch (Throwable t) {
+        log("6.0.90 隐身访问主页 Hook 失败: " + t.getMessage());
+    }
 }
 
     private static void updateFromChatUser(Object chatUser) {

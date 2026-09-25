@@ -2464,25 +2464,45 @@ private static void hookStartChat6090(ClassLoader cl) {
     hookInvisibleVisit6090(cl);
 }
 
-// ===== 6.0.90：屏蔽“打招呼”自动发贴纸 =====
-// 逆向：点打招呼 -> ChatDetailFragment$u.a(View) -> access$sendSayHi -> sendSayHi()
-// sendSayHi() 内部 new IMNewStickerBean(helloMsg=2) 后 sendMessage("new_sticker", ...)。
-// 这里直接拦 sendSayHi()，点了不发任何贴纸（按钮仍会随原逻辑隐藏）。
+// ===== 6.0.90：屏蔽“新会话自动打招呼”贴纸 =====
+// 逆向：点“打招呼”卡片 -> ChatDetailFragment$u.a -> access$sendSayHi -> sendSayHi()
+// 内部 new IMNewStickerBean(helloMsg=2) 后 ChatDetailViewModel.sendMessage("new_sticker",...)。
+// 会话列表“快捷回复”/“常用打招呼”也走 new_sticker 发送。
+//
+// 注意：无法静态区分“自动发送”与“用户点击发送”的全部入口，
+// 因此先只做【诊断】：不拦截，仅在发 new_sticker 时打印调用栈，
+// 用于确定“进页面自动发”的真实入口；待确认后再改为精准拦截。
 private static void hookBlockSayHi6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_block_say_hi", false)) return;
     try {
-        Class<?> frag = XposedHelpers.findClassIfExists(
-                "com.hellotalk.talk.detail.fragment.ChatDetailFragment", cl);
-        if (frag == null) return;
-        XposedBridge.hookAllMethods(frag, "sendSayHi", new XC_MethodHook() {
+        Class<?> vm = XposedHelpers.findClassIfExists(
+                "com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl);
+        if (vm == null) {
+            log("6.0.90 打招呼诊断: 未找到 ChatDetailViewModel");
+            return;
+        }
+        XposedBridge.hookAllMethods(vm, "sendMessage", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam p) {
-                p.setResult(null);
+                try {
+                    Object a0 = (p.args != null && p.args.length > 0) ? p.args[0] : null;
+                    if (!"new_sticker".equals(a0)) return;
+                    StringBuilder sb = new StringBuilder();
+                    StackTraceElement[] st = new Throwable().getStackTrace();
+                    int shown = 0;
+                    for (StackTraceElement e : st) {
+                        String cn = e.getClassName();
+                        if (cn == null || cn.startsWith("de.robv") || cn.startsWith("java.lang")) continue;
+                        sb.append("\n    ").append(cn).append(".").append(e.getMethodName());
+                        if (++shown >= 12) break;
+                    }
+                    log("6.0.90 打招呼发送调用栈:" + sb);
+                } catch (Throwable ignored) {}
             }
         });
-        log("6.0.90 屏蔽打招呼贴纸: Hook 注册成功");
+        log("6.0.90 打招呼诊断 Hook 注册成功（不拦截，仅记录调用栈）");
     } catch (Throwable t) {
-        log("6.0.90 屏蔽打招呼贴纸 Hook 失败: " + t.getMessage());
+        log("6.0.90 打招呼诊断 Hook 失败: " + t.getMessage());
     }
 }
 

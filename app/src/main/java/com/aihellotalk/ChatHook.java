@@ -2474,27 +2474,15 @@ private static void hookStartChat6090(ClassLoader cl) {
 // 用于确定“进页面自动发”的真实入口；待确认后再改为精准拦截。
 private static void hookBlockSayHi6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_block_say_hi", false)) return;
-    // 在多个候选发送点同时挂诊断，一次即可定位真实入口。
-    // 只记录、不拦截，待确认后再改精准拦截。
+    // 咽喉点：所有“打招呼贴纸”构造（sendSayHi / helper.s.c / provider.d.f / v11.a / TalkProvider 等）
+    // 都会 new IMNewStickerBean 并调 setHelloMsg。挂这里能覆盖全部发送路径。
+    // 先只诊断（记录调用栈），不拦截。
+    hookDiagNewSticker(cl,
+            "com.hellotalk.talk.detail.delegate.newSticker.IMNewStickerBean", "setHelloMsg");
+    // 兜底：会话列表快捷回复入口
     hookDiagNewSticker(cl, "com.hellotalk.talk.helper.s", "c");
-    hookAllMethodsDiagNewSticker(cl, "f11.a");
-    hookDiagNewSticker(cl, "com.hellotalk.talk.detail.fragment.ChatDetailFragment", "sendSayHi");
-    try {
-        Class<?> vm = XposedHelpers.findClassIfExists(
-                "com.hellotalk.talk.detail.data.source.ChatDetailViewModel", cl);
-        if (vm != null) {
-            XposedBridge.hookAllMethods(vm, "sendMessage", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam p) {
-                    Object a0 = (p.args != null && p.args.length > 0) ? p.args[0] : null;
-                    if (!"new_sticker".equals(a0)) return;
-                    logCallStack("ChatDetailViewModel.sendMessage");
-                }
-            });
-        }
-    } catch (Throwable t) {
-        log("6.0.90 打招呼诊断(ChatDetailViewModel) 失败: " + t.getMessage());
-    }
+    // 兜底：路由/Deeplink 发贴纸入口
+    hookDiagNewSticker(cl, "com.hellotalk.talk.provider.d", "f");
 }
 
 private static void hookDiagNewSticker(ClassLoader cl, String className, String methodName) {
@@ -2514,36 +2502,6 @@ private static void hookDiagNewSticker(ClassLoader cl, String className, String 
     } catch (Throwable t) {
         log("6.0.90 打招呼诊断 Hook 失败(" + className + "): " + t.getMessage());
     }
-}
-
-// 给某个类的【所有】方法挂诊断，仅当参数里出现字符串 "new_sticker" 时记录调用栈。
-private static void hookAllMethodsDiagNewSticker(ClassLoader cl, String className) {
-    try {
-        Class<?> c = XposedHelpers.findClassIfExists(className, cl);
-        if (c == null) {
-            log("6.0.90 打招呼诊断: 未找到 " + className);
-            return;
-        }
-        XposedBridge.hookAllMethods(c, "", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam p) {
-                if (!argsContainNewSticker(p.args)) return;
-                logCallStack(className + "." + p.method.getName());
-            }
-        });
-        log("6.0.90 打招呼诊断 Hook(全方法): " + className);
-    } catch (Throwable t) {
-        log("6.0.90 打招呼诊断 Hook(全方法) 失败(" + className + "): " + t.getMessage());
-    }
-}
-
-private static boolean argsContainNewSticker(Object[] args) {
-    if (args == null) return false;
-    for (Object a : args) {
-        if ("new_sticker".equals(a)) return true;
-        if (a instanceof CharSequence && a.toString().contains("new_sticker")) return true;
-    }
-    return false;
 }
 
 private static void logCallStack(String where) {

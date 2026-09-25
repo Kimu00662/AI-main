@@ -2464,71 +2464,41 @@ private static void hookStartChat6090(ClassLoader cl) {
     hookInvisibleVisit6090(cl);
 }
 
-// ===== 6.0.90：屏蔽“打招呼”贴纸 =====
+// ===== 6.0.90：屏蔽“打招呼”贴纸（保留进聊天）=====
 // 逆向确认（2026-09-25 日志调用栈）：
 //   点对方主页底部“挨拶する”(greeting button) -> ProfileBottomView 点击回调
-//     -> OtherProfileActivity.y7 -> TalkProvider.r4(...) -> new IMNewStickerBean(helloMsg)
-//        -> f11.a.d(..., "new_sticker", ...) 发送贴纸。
-// 另一处同样走 r4：MatchPartnerDialog / MatchPartnerV3Dialog（匹配到新伙伴弹窗）。
-// r4 只负责发打招呼贴纸，不负责打开聊天页（进聊天是 actionType=1 走 q7()），
-// 所以拦 r4 不会影响进入聊天。
+//     -> OtherProfileActivity.y7(actionType, ...)
+//          actionType 2/3 -> TalkProvider.r4(...) -> 发打招呼贴纸；发送成功后回调才进聊天
+//          actionType 1   -> q7() -> 直接进聊天（不发贴纸）
+// 也就是说发贴纸与进聊天被绑在一个动作里；直接拦 r4 会连聊天页也进不去。
+// 正确做法：把 actionType 2/3 改成 1，只进聊天页、不发贴纸。
 private static void hookBlockSayHi6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_block_say_hi", false)) return;
     try {
-        Class<?> provider = XposedHelpers.findClassIfExists(
-                "com.hellotalk.talk.provider.TalkProvider", cl);
-        if (provider != null) {
-            XposedBridge.hookAllMethods(provider, "r4", new XC_MethodHook() {
+        Class<?> act = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.view.activity.OtherProfileActivity", cl);
+        if (act != null) {
+            XposedBridge.hookAllMethods(act, "y7", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam p) {
-                    log("6.0.90 已拦截打招呼贴纸(TalkProvider.r4)");
-                    p.setResult(null);
+                    try {
+                        if (p.args != null && p.args.length > 0 && p.args[0] instanceof Integer) {
+                            int t = (Integer) p.args[0];
+                            if (t == 2 || t == 3) {
+                                p.args[0] = 1;
+                                log("6.0.90 打招呼按钮: 改为只进聊天、不发贴纸");
+                            }
+                        }
+                    } catch (Throwable ignored) {}
                 }
             });
-            log("6.0.90 屏蔽打招呼贴纸: Hook TalkProvider.r4 注册成功");
+            log("6.0.90 屏蔽打招呼贴纸: Hook OtherProfileActivity.y7 注册成功");
         } else {
-            log("6.0.90 屏蔽打招呼贴纸: 未找到 TalkProvider");
+            log("6.0.90 屏蔽打招呼贴纸: 未找到 OtherProfileActivity");
         }
     } catch (Throwable t) {
         log("6.0.90 屏蔽打招呼贴纸 Hook 失败: " + t.getMessage());
     }
-    // 诊断（保留）：若还有漏网的打招呼发送，会打印调用栈，便于后续定位。
-    hookDiagNewSticker(cl,
-            "com.hellotalk.talk.detail.delegate.newSticker.IMNewStickerBean", "setHelloMsg");
-}
-
-private static void hookDiagNewSticker(ClassLoader cl, String className, String methodName) {
-    try {
-        Class<?> c = XposedHelpers.findClassIfExists(className, cl);
-        if (c == null) {
-            log("6.0.90 打招呼诊断: 未找到 " + className);
-            return;
-        }
-        XposedBridge.hookAllMethods(c, methodName, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam p) {
-                logCallStack(className + "." + methodName);
-            }
-        });
-        log("6.0.90 打招呼诊断 Hook: " + className + "." + methodName);
-    } catch (Throwable t) {
-        log("6.0.90 打招呼诊断 Hook 失败(" + className + "): " + t.getMessage());
-    }
-}
-
-private static void logCallStack(String where) {
-    try {
-        StringBuilder sb = new StringBuilder();
-        StackTraceElement[] st = new Throwable().getStackTrace();
-        int shown = 0;
-        for (StackTraceElement e : st) {
-            String cn = e.getClassName();
-            if (cn == null || cn.startsWith("de.robv") || cn.startsWith("java.lang")) continue;
-            sb.append("\n    ").append(cn).append(".").append(e.getMethodName());
-            if (++shown >= 14) break;
-        }
-        log("6.0.90 打招呼发送调用栈 [" + where + "]:" + sb);
-    } catch (Throwable ignored) {}
 }
 
 // ===== 6.0.90：隐身访问主页（不留脚印）=====

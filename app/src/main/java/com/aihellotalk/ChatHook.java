@@ -2547,7 +2547,6 @@ private static java.util.List<String> readLocalVisitMeta6090(int uid) {
 // 进对方主页时，OtherProfileModel.loadProfile(OtherProfileReq, continuation) 返回 User，
 // 从中把 昵称/头像/国籍 回填到本地访问记录（否则补进列表的条目只有 uid、无头像）。
 private static void hookVisitMeta6090(ClassLoader cl) {
-    if (!readStealthConfig("stealth_visit_log", true)) return;
     try {
         Class<?> model = XposedHelpers.findClassIfExists(
                 "com.hellotalk.profile.mvvm.model.OtherProfileModel", cl);
@@ -2555,6 +2554,7 @@ private static void hookVisitMeta6090(ClassLoader cl) {
         XposedBridge.hookAllMethods(model, "loadProfile", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!readStealthConfig("stealth_visit_log", true)) return;
                 try {
                     Object user = p.getResult();
                     if (user == null) return;
@@ -2622,7 +2622,6 @@ private static void updateLocalVisitMeta6090(final int uid,
 }
 
 private static void hookMyVisitHistory6090(ClassLoader cl) {
-    if (!readStealthConfig("stealth_visit_log", true)) return;
 
     // 诊断：确认“我看了谁”页面的调用链到底走没走（只打日志，不改行为）
     try {
@@ -2676,6 +2675,7 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
         XposedBridge.hookAllMethods(worker, "a", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!readStealthConfig("stealth_visit_log", true)) return;
                 try {
                     Object result = p.getResult();
                     log("6.0.90 足迹诊断: $d.a() 返回 "

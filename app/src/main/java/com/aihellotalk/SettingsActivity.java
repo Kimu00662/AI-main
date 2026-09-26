@@ -493,8 +493,21 @@ stealthContentLayout.addView(rowVisitLog);
 Button btnClearVisitLog = btn("🧹 清理访问足迹记录");
 btnClearVisitLog.setOnClickListener(v -> {
     new Thread(() -> {
-        String r = runRoot("rm -f /data/data/com.hellotalk/files/htai_visit_log.txt /data/data/com.hellotalk/files/htai_visit_log.txt.tmp");
-        runOnUiThread(() -> toast(r == null ? "清理失败：未获取到 root" : "✅ 已清理本地访问足迹"));
+        String p = "/data/data/com.hellotalk/files/htai_visit_log.txt";
+        String cmd = "rm -f " + p + " " + p + ".tmp"
+                + "; if [ -e " + p + " ]; then echo STILL_EXISTS; else echo GONE; fi"
+                + "; ls -l " + p + " 2>&1";
+        String r = runRoot(cmd);
+        String msg;
+        if (r == null) {
+            msg = "清理失败：未获取到 root";
+        } else if (r.contains("GONE")) {
+            msg = "✅ 已清理本地访问足迹（文件已删除）";
+        } else {
+            msg = "❌ 文件仍在：" + r.replace("\n", " ");
+        }
+        final String fm = msg;
+        runOnUiThread(() -> toast(fm));
     }).start();
 });
 stealthContentLayout.addView(btnClearVisitLog);

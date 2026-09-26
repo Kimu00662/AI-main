@@ -891,14 +891,17 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             File dir = new File("/data/data/com.hellotalk/files");
             String[] names = dir.list();
             if (names == null) return false;
-            for (String n : names) { if (n != null && n.startsWith("htai_")) return true; }
+            for (String n : names) {
+                if (n != null && n.startsWith("htai_") && !"htai_visit_log.txt".equals(n)) return true;
+            }
         } catch (Throwable ignored) {}
         return false;
     }
 
     private static boolean storeHasBackup() {
         try {
-            String out = runRoot("ls " + STORE_DIR + "/htai_* 2>/dev/null");
+            String out = runRoot("find " + STORE_DIR
+                    + " -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
             return out != null && !out.trim().isEmpty();
         } catch (Throwable e) { return false; }
     }
@@ -971,11 +974,24 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             long now = System.currentTimeMillis();
             if (now - lastBackupTs < BACKUP_INTERVAL_MS) return;
             lastBackupTs = now;
-            String sandboxLs = runRoot("ls /data/data/com.hellotalk/files/htai_* 2>/dev/null");
+            String sandboxLs = runRoot("find /data/data/com.hellotalk/files"
+                    + " -maxdepth 1 -type f -name 'htai_*'"
+                    + " ! -name 'htai_visit_log.txt' 2>/dev/null");
             if (sandboxLs == null || sandboxLs.trim().isEmpty()) return;
-            runRoot("mkdir -p " + STORE_DIR + " && rm -f " + STORE_DIR + "/htai_* 2>/dev/null; "
-                    + "cp /data/data/com.hellotalk/files/htai_* " + STORE_DIR + "/ 2>/dev/null; "
-                    + "chmod 600 " + STORE_DIR + "/htai_* 2>/dev/null");
+            runRoot("mkdir -p " + STORE_DIR
+                    + " && rm -f " + STORE_DIR + "/htai_visit_log.txt "
+                    + STORE_DIR + "/htai_visit_log.txt.tmp 2>/dev/null"
+                    + " && find " + STORE_DIR
+                    + " -maxdepth 1 -type f -name 'htai_*'"
+                    + " ! -name 'htai_visit_log.txt' -delete 2>/dev/null"
+                    + " && find /data/data/com.hellotalk/files"
+                    + " -maxdepth 1 -type f -name 'htai_*'"
+                    + " ! -name 'htai_visit_log.txt'"
+                    + " -exec cp {} " + STORE_DIR + "/ \\;"
+                    + " && find " + STORE_DIR
+                    + " -maxdepth 1 -type f -name 'htai_*'"
+                    + " ! -name 'htai_visit_log.txt'"
+                    + " -exec chmod 600 {} \\;");
         } catch (Throwable ignored) {}
     }
 

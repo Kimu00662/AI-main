@@ -2612,6 +2612,8 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
                     }
 
                     java.util.List<long[]> missing = readMissingVisitIds6090(existing);
+                    log("6.0.90 足迹诊断: 服务器列表=" + existing
+                            + " 待补=" + missing.size());
                     if (missing.isEmpty()) return;
 
                     int added = 0;

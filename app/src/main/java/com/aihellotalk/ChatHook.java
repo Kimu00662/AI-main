@@ -2467,7 +2467,10 @@ private static void recordLocalVisit6090(final int uid) {
 private static java.util.LinkedHashMap<Integer, String[]> loadVisitLog6090() {
     java.util.LinkedHashMap<Integer, String[]> map = new java.util.LinkedHashMap<>();
     File f = new File(VISIT_LOG_FILE);
-    if (!f.exists()) return map;
+    if (!f.exists()) {
+        log("6.0.90 足迹诊断: 文件不存在 " + VISIT_LOG_FILE);
+        return map;
+    }
     try (BufferedReader r = new BufferedReader(new FileReader(f))) {
         String line;
         while ((line = r.readLine()) != null) {
@@ -2481,6 +2484,7 @@ private static java.util.LinkedHashMap<Integer, String[]> loadVisitLog6090() {
             } catch (Throwable ignored) {}
         }
     } catch (Throwable ignored) {}
+    log("6.0.90 足迹诊断: 读取文件 " + map.size() + " 条 keys=" + map.keySet());
     return map;
 }
 

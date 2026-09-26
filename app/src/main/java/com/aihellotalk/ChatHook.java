@@ -1421,7 +1421,9 @@ private static void logHt6090RequestSummary() {
 private static String askAiQuestionHt6090(String text, String chatId) throws Exception {
     logHt6090RequestSummary();
     try {
-        return AITranslator.askAiQuestionLive(text, chatId);
+        // 6.0.90 专用：实时 UI 上下文 + 模块历史文件（max_chat_messages 条）合并，
+        // 对齐 5.7.0 括号问答的上下文吃满效果。6.4.0 仍走 2 参版本，行为不变。
+        return AITranslator.askAiQuestionLive(text, chatId, true);
     } catch (Exception e) {
         log("6.0.90 请求失败: " + (e.getMessage() != null
                 ? e.getMessage() : e.getClass().getSimpleName()));

@@ -1309,6 +1309,12 @@ private static OkHttpClient getReceiveClient() {
 // 绝对不调用 loadHistory()。
 // 新版问答只相信 ChatHook 从当前 HelloTalk 页面取得的真实内容。
 public static String askAiQuestionLive(String text, String chatId) throws IOException {
+    return askAiQuestionLive(text, chatId, false);
+}
+
+// includeHistory=true 时，额外把模块历史文件（max_chat_messages 条）按 5.7.0
+// askAiQuestion 的同款格式拼进上下文，解决实时 UI 列表受屏幕加载窗口限制、拿不满的问题。
+public static String askAiQuestionLive(String text, String chatId, boolean includeHistory) throws IOException {
 
     maybeRecheckMode();
 
@@ -1391,6 +1397,24 @@ try {
                 .append("以下是聊天中出现过的图片描述存档（AI 之前识别后保存）。如果用户提到以前的图片（如“刚才那张”），请优先参考这里：\n")
                 .append(imgMemories.toString())
                 .append("\n");
+    }
+
+    // 6.0.90 括号问答：合并模块历史文件，与 5.7.0 askAiQuestion 同款格式。
+    if (includeHistory) {
+        userTextBuilder.append("【对话上下文】\n");
+        int maxChatMessages = getMaxChatMessages();
+        int startIdx = Math.max(0, hist.length() - maxChatMessages);
+        boolean hasContext = false;
+        for (int i = startIdx; i < hist.length(); i++) {
+            JSONObject msg = hist.getJSONObject(i);
+            String role = msg.optString("role", "");
+            String content = msg.optString("content", "");
+            String prefix = msg.optBoolean("oneTime", false) ? "[一次性上下文] " : "";
+            if ("user".equals(role)) { userTextBuilder.append(prefix).append(scriptLine("对方", content, "中文意思")); hasContext = true; }
+            else if ("assistant".equals(role)) { userTextBuilder.append(prefix).append(scriptLine("我", content, "中文原意")); hasContext = true; }
+        }
+        if (!hasContext) userTextBuilder.append("（暂无有效上下文）\n");
+        userTextBuilder.append("\n");
     }
 } catch (Throwable ignored) {}
 

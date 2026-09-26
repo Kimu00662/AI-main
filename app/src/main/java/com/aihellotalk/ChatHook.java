@@ -2347,6 +2347,7 @@ private static void hookStartChat6090(ClassLoader cl) {
 
     hookBlockSayHi6090(cl);
     hookInvisibleVisit6090(cl);
+    hookVisitMeta6090(cl);
     hookMyVisitHistory6090(cl);
 }
 
@@ -2541,6 +2542,83 @@ private static java.util.List<String> readLocalVisitMeta6090(int uid) {
     } catch (Throwable t) {
         return null;
     }
+}
+
+// 进对方主页时，OtherProfileModel.loadProfile(OtherProfileReq, continuation) 返回 User，
+// 从中把 昵称/头像/国籍 回填到本地访问记录（否则补进列表的条目只有 uid、无头像）。
+private static void hookVisitMeta6090(ClassLoader cl) {
+    if (!readStealthConfig("stealth_visit_log", true)) return;
+    try {
+        Class<?> model = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.model.OtherProfileModel", cl);
+        if (model == null) return;
+        XposedBridge.hookAllMethods(model, "loadProfile", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    Object user = p.getResult();
+                    if (user == null) return;
+
+                    int uid = 0;
+                    try {
+                        Object req = (p.args != null && p.args.length > 0) ? p.args[0] : null;
+                        if (req != null) {
+                            Object id = XposedHelpers.callMethod(req, "getUser_id");
+                            if (id instanceof Integer) uid = (Integer) id;
+                        }
+                    } catch (Throwable ignored) {}
+                    if (uid <= 0) {
+                        try {
+                            Object id = XposedHelpers.callMethod(user, "getUserid");
+                            if (id instanceof Integer) uid = (Integer) id;
+                        } catch (Throwable ignored) {}
+                    }
+                    if (uid <= 0) return;
+
+                    String nick = null, head = null, nat = null;
+                    try { nick = (String) XposedHelpers.callMethod(user, "getNickname"); } catch (Throwable ignored) {}
+                    try { head = (String) XposedHelpers.callMethod(user, "getHeadurl"); } catch (Throwable ignored) {}
+                    try { nat = (String) XposedHelpers.callMethod(user, "getNationality"); } catch (Throwable ignored) {}
+
+                    updateLocalVisitMeta6090(uid, nick, head, nat);
+                } catch (Throwable t) {
+                    log("6.0.90 足迹资料回填失败: " + t.getMessage());
+                }
+            }
+        });
+        log("6.0.90 足迹资料: Hook OtherProfileModel.loadProfile 注册成功");
+    } catch (Throwable t) {
+        log("6.0.90 足迹资料 Hook 失败: " + t.getMessage());
+    }
+}
+
+// 把昵称/头像/国籍写回本地记录（仅当该 uid 已有记录时才回填，不新增记录）。
+private static void updateLocalVisitMeta6090(final int uid,
+                                            final String nick,
+                                            final String head,
+                                            final String nat) {
+    new Thread(() -> {
+        try {
+            synchronized (visitLogLock) {
+                java.util.LinkedHashMap<Integer, String[]> map = loadVisitLog6090();
+                String[] old = map.get(uid);
+                if (old == null) return;
+                String n = (nick != null && !nick.isEmpty()) ? nick : old[0];
+                String h = (head != null && !head.isEmpty()) ? head : old[1];
+                String c = (nat != null && !nat.isEmpty()) ? nat : old[2];
+                if (java.util.Objects.equals(n, old[0])
+                        && java.util.Objects.equals(h, old[1])
+                        && java.util.Objects.equals(c, old[2])) {
+                    return;
+                }
+                map.put(uid, new String[]{n, h, c, old[3]});
+                writeVisitLog6090(map);
+                log("6.0.90 足迹资料: uid=" + uid + " 已回填 nick=" + n);
+            }
+        } catch (Throwable t) {
+            log("6.0.90 足迹资料回填失败: " + t.getMessage());
+        }
+    }, "HT_AI_VisitMeta").start();
 }
 
 private static void hookMyVisitHistory6090(ClassLoader cl) {

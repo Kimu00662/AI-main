@@ -2427,7 +2427,9 @@ private static void hookInvisibleVisit6090(ClassLoader cl) {
 //   -> c81/c.A(List)（内部 u.clear(); u.addAll(...)）。
 // 这里在 a() 返回后，把“服务器列表里没有、但本地记录里有”的 uid 造成 l 对象追加进去。
 // 全部 try/catch：任何一步失败都不能影响官方列表本身。
-private static final String VISIT_LOG_FILE = "/data/local/tmp/htai_visit_log.txt";
+// 注意：hook 跑在 HelloTalk 进程，对 /data/local/tmp 无写权限，
+// 必须写在 HelloTalk 自己的私有目录（与 htai_friends.json / htai_cache.txt 同款）。
+private static final String VISIT_LOG_FILE = "/data/data/com.hellotalk/files/htai_visit_log.txt";
 private static final int VISIT_LOG_MAX = 200;
 private static final Object visitLogLock = new Object();
 
@@ -2450,8 +2452,11 @@ private static void recordLocalVisit6090(final int uid) {
                     map.remove(first);
                 }
                 writeVisitLog6090(map);
+                File chk = new File(VISIT_LOG_FILE);
+                log("6.0.90 足迹: 已记录 uid=" + uid
+                        + " 文件条数=" + map.size()
+                        + " 文件OK=" + (chk.exists() && chk.length() > 0));
             }
-            log("6.0.90 足迹: 已记录 uid=" + uid);
         } catch (Throwable t) {
             log("6.0.90 足迹记录失败: " + t.getMessage());
         }

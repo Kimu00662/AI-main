@@ -2697,10 +2697,10 @@ final String chatId = eid;
 
                 if (isMine && newReplyControllerDetected) {
                     String draftChinese = AITranslator.mySentDrafts.get(text);
-                    boolean exactHit = draftChinese != null && !draftChinese.trim().isEmpty();
-                    if (!exactHit && isHt6090Detected && pendingFriendRegister) {
-                        // 6.0.90：用户可能编辑过选中的翻译再发送，精确查不到时按模糊匹配确认，
-                        // 并把「编辑后文本→中文」补记进缓存，使反转查看无需再调 API。
+                    if ((draftChinese == null || draftChinese.trim().isEmpty()) && isHt6090Detected) {
+                        // 6.0.90：自己发出的外语消息按模糊匹配找回中文并补记进缓存。
+                        // 覆盖两种情形：① 发送前编辑过（加表情/标点、删词）；
+                        // ② 先复制、清空输入框，稍后再发送。使反转查看命中本地缓存、无需再调 API。
                         draftChinese = AITranslator.getDraftFuzzy(text);
                         if (draftChinese == null) draftChinese = AITranslator.getChineseByForeign(text);
                         if (draftChinese != null && !draftChinese.trim().isEmpty()) {

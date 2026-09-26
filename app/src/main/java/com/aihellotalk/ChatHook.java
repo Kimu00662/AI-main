@@ -792,9 +792,19 @@ if (selectedReplyValid
                 || pendingFriendChatId == null
                 || !chatId.equals(pendingFriendChatId)
                 || text == null
-                || pendingSelectedForeign == null
-                || !pendingSelectedForeign.trim().equals(text.trim())) {
+                || pendingSelectedForeign == null) {
             return;
+        }
+
+        // 6.0.90：用户可能编辑过选中的翻译再发送，按模糊匹配确认仍是同一条，
+        // 并把「编辑后文本→中文」补记进缓存，使反转查看无需再调 API；
+        // 5.7.0/6.4.0 保持精确匹配。
+        if (!pendingSelectedForeign.trim().equals(text.trim())) {
+            if (!isHt6090Detected) return;
+            String editedChinese = AITranslator.getDraftFuzzy(text);
+            if (editedChinese == null) editedChinese = AITranslator.getChineseByForeign(text);
+            if (editedChinese == null || editedChinese.trim().isEmpty()) return;
+            AITranslator.rememberDraftIfAbsent(text, editedChinese);
         }
 
         String friendName = currentPartnerName;
@@ -2687,6 +2697,16 @@ final String chatId = eid;
 
                 if (isMine && newReplyControllerDetected) {
                     String draftChinese = AITranslator.mySentDrafts.get(text);
+                    boolean exactHit = draftChinese != null && !draftChinese.trim().isEmpty();
+                    if (!exactHit && isHt6090Detected && pendingFriendRegister) {
+                        // 6.0.90：用户可能编辑过选中的翻译再发送，精确查不到时按模糊匹配确认，
+                        // 并把「编辑后文本→中文」补记进缓存，使反转查看无需再调 API。
+                        draftChinese = AITranslator.getDraftFuzzy(text);
+                        if (draftChinese == null) draftChinese = AITranslator.getChineseByForeign(text);
+                        if (draftChinese != null && !draftChinese.trim().isEmpty()) {
+                            AITranslator.rememberDraftIfAbsent(text, draftChinese);
+                        }
+                    }
                     if (draftChinese != null
                             && !draftChinese.trim().isEmpty()
                             && currentChatId != null
@@ -3213,13 +3233,27 @@ updateTranslateBtnText(btn);
                 }
 
                 if (selectedForeign != null && !selectedForeign.equals(now)) {
-                    pendingFriendRegister = false;
-                    pendingFriendChatId = null;
-                    pendingSelectedForeign = null;
-                    lastPickerResult = null;
-                    lastPickerOrig = null;
-                    lastPickerPns = null;
-                    lastPickerOneTime = false;
+                    if (isHt6090Detected) {
+                        // 6.0.90：编辑选中的翻译后仍保留待发送标记（发送时按模糊匹配确认），
+                        // 只有输入框被清空才清除；5.7.0/6.4.0 保持原行为。
+                        if (now.trim().isEmpty()) {
+                            pendingFriendRegister = false;
+                            pendingFriendChatId = null;
+                            pendingSelectedForeign = null;
+                            lastPickerResult = null;
+                            lastPickerOrig = null;
+                            lastPickerPns = null;
+                            lastPickerOneTime = false;
+                        }
+                    } else {
+                        pendingFriendRegister = false;
+                        pendingFriendChatId = null;
+                        pendingSelectedForeign = null;
+                        lastPickerResult = null;
+                        lastPickerOrig = null;
+                        lastPickerPns = null;
+                        lastPickerOneTime = false;
+                    }
                     verBtn.setVisibility(View.GONE);
                 }
             }

@@ -494,17 +494,20 @@ Button btnClearVisitLog = btn("🧹 清理访问足迹记录");
 btnClearVisitLog.setOnClickListener(v -> {
     new Thread(() -> {
         String p = "/data/data/com.hellotalk/files/htai_visit_log.txt";
-        String cmd = "rm -f " + p + " " + p + ".tmp"
-                + "; if [ -e " + p + " ]; then echo STILL_EXISTS; else echo GONE; fi"
-                + "; ls -l " + p + " 2>&1";
+        String store = "/data/local/tmp/htai_store/htai_visit_log.txt";
+        String cmd = "am force-stop com.hellotalk"
+                + "; rm -f " + p + " " + p + ".tmp " + store + " " + store + ".tmp"
+                + "; if [ -e " + p + " ]; then echo SANDBOX_EXISTS; else echo SANDBOX_GONE; fi"
+                + "; if [ -e " + store + " ]; then echo STORE_EXISTS; else echo STORE_GONE; fi"
+                + "; ls -l " + p + " " + store + " 2>&1";
         String r = runRoot(cmd);
         String msg;
         if (r == null) {
             msg = "清理失败：未获取到 root";
-        } else if (r.contains("GONE")) {
-            msg = "✅ 已清理本地访问足迹（文件已删除）";
+        } else if (r.contains("SANDBOX_GONE") && r.contains("STORE_GONE")) {
+            msg = "✅ 已清理本地访问足迹（沙箱与备份均已删除）";
         } else {
-            msg = "❌ 文件仍在：" + r.replace("\n", " ");
+            msg = "❌ 足迹文件仍在：" + r.replace("\n", " ");
         }
         final String fm = msg;
         runOnUiThread(() -> toast(fm));
@@ -865,7 +868,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
 
     private String runRoot(String cmd) {
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
+            Process p = Runtime.getRuntime().exec(new String[]{"su", "-M", "-c", cmd});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             StringBuilder sb = new StringBuilder();
             String l;

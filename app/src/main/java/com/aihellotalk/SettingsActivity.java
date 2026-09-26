@@ -68,7 +68,7 @@ public class SettingsActivity extends Activity {
     private EditText etKey8, etUrl8, etModel8, etWeight8, etAlias8;
     private android.widget.Spinner spinnerDir8, spinnerReasoning8;
     
-    private android.widget.Switch swHideRead, swHideTyping, swBlockSayHi, swInvisibleVisit;
+    private android.widget.Switch swHideRead, swHideTyping, swBlockSayHi, swInvisibleVisit, swVisitLog;
     private EditText etSearchPrompt;
     private Button btnFetch, btnSave, btnTest;
     private Button btnSearchPrompt;
@@ -473,6 +473,31 @@ swInvisibleVisit = new android.widget.Switch(this);
 swInvisibleVisit.setChecked(prefs.getBoolean("stealth_invisible_visit", false));
 rowInvisibleVisit.addView(swInvisibleVisit);
 stealthContentLayout.addView(rowInvisibleVisit);
+
+// 记录访问足迹（本地）——控制是否把本地足迹补进“我看了谁”列表
+LinearLayout rowVisitLog = new LinearLayout(this);
+rowVisitLog.setOrientation(LinearLayout.HORIZONTAL);
+rowVisitLog.setGravity(android.view.Gravity.CENTER_VERTICAL);
+rowVisitLog.setPadding(0, 10, 0, 10);
+TextView lblVisitLog = new TextView(this);
+lblVisitLog.setText("记录访问足迹（本地保存，显示在“我看了谁”里）");
+lblVisitLog.setTextSize(14f);
+lblVisitLog.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+rowVisitLog.addView(lblVisitLog);
+swVisitLog = new android.widget.Switch(this);
+swVisitLog.setChecked(prefs.getBoolean("stealth_visit_log", true));
+rowVisitLog.addView(swVisitLog);
+stealthContentLayout.addView(rowVisitLog);
+
+// 清理本地访问记录
+Button btnClearVisitLog = btn("🧹 清理访问足迹记录");
+btnClearVisitLog.setOnClickListener(v -> {
+    new Thread(() -> {
+        String r = runRoot("rm -f /data/local/tmp/htai_visit_log.txt /data/local/tmp/htai_visit_log.txt.tmp");
+        runOnUiThread(() -> toast(r == null ? "清理失败：未获取到 root" : "✅ 已清理本地访问足迹"));
+    }).start();
+});
+stealthContentLayout.addView(btnClearVisitLog);
 
 ll.addView(stealthContentLayout);
 setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵️ 隐身与反检测", "stealth_expanded");
@@ -1340,6 +1365,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
 editor.putBoolean("stealth_hide_typing", swHideTyping.isChecked());
 editor.putBoolean("stealth_block_say_hi", swBlockSayHi.isChecked());
 editor.putBoolean("stealth_invisible_visit", swInvisibleVisit.isChecked());
+editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
         editor.apply();
 
         final String finalTempStr = tempStr;
@@ -1428,6 +1454,7 @@ editor.putBoolean("stealth_invisible_visit", swInvisibleVisit.isChecked());
 + "stealth_hide_typing=" + prefs.getBoolean("stealth_hide_typing", true) + "\n"
 + "stealth_block_say_hi=" + prefs.getBoolean("stealth_block_say_hi", false) + "\n"
 + "stealth_invisible_visit=" + prefs.getBoolean("stealth_invisible_visit", false) + "\n"
++ "stealth_visit_log=" + prefs.getBoolean("stealth_visit_log", true) + "\n"
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "EOF\n"

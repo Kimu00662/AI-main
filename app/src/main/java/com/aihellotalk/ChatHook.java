@@ -2347,6 +2347,7 @@ private static void hookStartChat6090(ClassLoader cl) {
 
     hookBlockSayHi6090(cl);
     hookInvisibleVisit6090(cl);
+    hookMyVisitHistory6090(cl);
 }
 
 // ===== 6.0.90：屏蔽“打招呼”贴纸（保留进聊天）=====
@@ -2391,10 +2392,10 @@ private static void hookBlockSayHi6090(ClassLoader cl) {
 //   进对方主页 -> OtherProfileViewModel.loadVisitRequest(uid) -> $w 协程
 //     -> OtherProfileModel.postProfileVisitorVisitRequest(uid, source) -> new pt0/g() 上报“我访问了 uid”。
 //   服务器这次上报同时做两件事：① 记进“我看了谁”(userProfileMyHistory)；② 通知对方。
-//   旧实现直接吞掉上报：对方看不到（✓），但“我看了谁”也空了（✗）。
-//   官方 VIP 隐身的做法是先发 pt0/i(is_secret=true, uid) 把该 uid 标为隐身，再照常上报；
-//   服务器照记（自己可见）、对目标隐藏。
-// 现改为：先补发隐身标记，成功才放行上报；标记失败则退回“吞掉上报”，绝不露脚印。
+//   官方 VIP 隐身的做法是先发 pt0/i(is_secret=true, uid) 再上报；但实测非 VIP 服务器直接拒
+//   （resp={"msg":"this user is not vip","code":500}），假VIP 也骗不过服务端。
+// 因此：吞掉上报（对方看不到），同时把访问写进模块本地记录，再由 hookMyVisitHistory6090
+// 在“我看了谁”页面加载时把这些本地记录补进列表（详见该函数注释）。
 private static void hookInvisibleVisit6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_invisible_visit", false)) return;
     try {
@@ -2410,46 +2411,215 @@ private static void hookInvisibleVisit6090(ClassLoader cl) {
                         uid = (Integer) p.args[0];
                     }
                 } catch (Throwable ignored) {}
-                if (!markVisitInvisible6090(uid)) {
-                    p.setResult(null);
-                }
+                if (uid > 0) recordLocalVisit6090(uid);
+                p.setResult(null);
             }
         });
-        log("6.0.90 隐身访问主页: Hook 注册成功（保留记录+补发隐身标记）");
+        log("6.0.90 隐身访问主页: Hook 注册成功（吞上报+本地记录）");
     } catch (Throwable t) {
         log("6.0.90 隐身访问主页 Hook 失败: " + t.getMessage());
     }
 }
 
-// 发 pt0/i(is_secret=true, uid)，把该 uid 的访问标记为隐身。返回是否成功。
-private static boolean markVisitInvisible6090(int uid) {
-    try {
-        if (uid <= 0) return false;
-        Class<?> reqCls = XposedHelpers.findClassIfExists("pt0.i", hostClassLoader);
-        if (reqCls == null) {
-            log("6.0.90 隐身访问: 未找到 pt0.i，退回吞掉上报");
-            return false;
+// ===== 6.0.90：把本地访问足迹补进“我看了谁”列表 =====
+// 逆向链路：WhoLookMeModel$d.a() 返回 List<profile.mvvm.model.l>
+//   -> profile.mvvm.model.o(List,boolean) -> VisitPageFragment.onListDataChange
+//   -> c81/c.A(List)（内部 u.clear(); u.addAll(...)）。
+// 这里在 a() 返回后，把“服务器列表里没有、但本地记录里有”的 uid 造成 l 对象追加进去。
+// 全部 try/catch：任何一步失败都不能影响官方列表本身。
+private static final String VISIT_LOG_FILE = "/data/local/tmp/htai_visit_log.txt";
+private static final int VISIT_LOG_MAX = 200;
+private static final Object visitLogLock = new Object();
+
+// 记录一次本地访问。文件格式：uid|nickname|headurl|nationality|timestamp
+// 同一 uid 只保留最新一条；访问时昵称/头像未知则先留空，后续可从对方资料回填。
+private static void recordLocalVisit6090(final int uid) {
+    new Thread(() -> {
+        try {
+            synchronized (visitLogLock) {
+                java.util.LinkedHashMap<Integer, String[]> map = loadVisitLog6090();
+                String[] old = map.get(uid);
+                String nick = (old != null) ? old[0] : "";
+                String head = (old != null) ? old[1] : "";
+                String nat = (old != null) ? old[2] : "";
+                // 昵称等由 captureVisitMeta6090 异步回填，这里只刷新时间戳
+                map.remove(uid);
+                map.put(uid, new String[]{nick, head, nat, String.valueOf(System.currentTimeMillis())});
+                while (map.size() > VISIT_LOG_MAX) {
+                    Integer first = map.keySet().iterator().next();
+                    map.remove(first);
+                }
+                writeVisitLog6090(map);
+            }
+            log("6.0.90 足迹: 已记录 uid=" + uid);
+        } catch (Throwable t) {
+            log("6.0.90 足迹记录失败: " + t.getMessage());
         }
-        Object req = reqCls.getDeclaredConstructor().newInstance();
-        Method setSecret = reqCls.getDeclaredMethod("a", boolean.class);
-        setSecret.setAccessible(true);
-        setSecret.invoke(req, true);
-        Method setUid = reqCls.getDeclaredMethod("b", int.class);
-        setUid.setAccessible(true);
-        setUid.invoke(req, uid);
-        Method request = reqCls.getMethod("request");
-        request.setAccessible(true);
-        Object resp = request.invoke(req);
-        int code = -1;
-        try { code = new org.json.JSONObject(String.valueOf(resp)).optInt("code", -1); } catch (Throwable ignored) {}
-        boolean ok = (code == 200);
-        log("6.0.90 隐身访问: 标记 uid=" + uid + (ok ? " 成功" : " 失败") + " resp=" + resp);
-        return ok;
+    }, "HT_AI_VisitLog").start();
+}
+
+private static java.util.LinkedHashMap<Integer, String[]> loadVisitLog6090() {
+    java.util.LinkedHashMap<Integer, String[]> map = new java.util.LinkedHashMap<>();
+    File f = new File(VISIT_LOG_FILE);
+    if (!f.exists()) return map;
+    try (BufferedReader r = new BufferedReader(new FileReader(f))) {
+        String line;
+        while ((line = r.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            String[] parts = line.split("\\|", -1);
+            if (parts.length < 5) continue;
+            try {
+                int uid = Integer.parseInt(parts[0]);
+                map.put(uid, new String[]{parts[1], parts[2], parts[3], parts[4]});
+            } catch (Throwable ignored) {}
+        }
+    } catch (Throwable ignored) {}
+    return map;
+}
+
+private static void writeVisitLog6090(java.util.LinkedHashMap<Integer, String[]> map) {
+    try {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<Integer, String[]> e : map.entrySet()) {
+            String[] v = e.getValue();
+            sb.append(e.getKey()).append('|')
+              .append(v[0] == null ? "" : v[0]).append('|')
+              .append(v[1] == null ? "" : v[1]).append('|')
+              .append(v[2] == null ? "" : v[2]).append('|')
+              .append(v[3] == null ? "0" : v[3]).append('\n');
+        }
+        File tmp = new File(VISIT_LOG_FILE + ".tmp");
+        try (java.io.FileWriter w = new java.io.FileWriter(tmp)) {
+            w.write(sb.toString());
+        }
+        File dst = new File(VISIT_LOG_FILE);
+        if (!tmp.renameTo(dst)) {
+            dst.delete();
+            tmp.renameTo(dst);
+        }
+    } catch (Throwable ignored) {}
+}
+
+// 返回本地记录中“不在服务器列表”的 uid+时间戳（按访问时间倒序）。
+private static java.util.List<int[]> readMissingVisitIds6090(java.util.Set<Integer> existing) {
+    java.util.List<int[]> out = new java.util.ArrayList<>();
+    try {
+        synchronized (visitLogLock) {
+            java.util.LinkedHashMap<Integer, String[]> map = loadVisitLog6090();
+            java.util.List<java.util.Map.Entry<Integer, String[]>> entries =
+                    new java.util.ArrayList<>(map.entrySet());
+            java.util.Collections.reverse(entries);
+            for (java.util.Map.Entry<Integer, String[]> e : entries) {
+                int uid = e.getKey();
+                if (uid <= 0 || existing.contains(uid)) continue;
+                long ts = 0;
+                try { ts = Long.parseLong(e.getValue()[3]); } catch (Throwable ignored) {}
+                out.add(new int[]{uid, (int) (ts / 1000)});
+            }
+        }
+    } catch (Throwable ignored) {}
+    return out;
+}
+
+private static java.util.List<String> readLocalVisitMeta6090(int uid) {
+    try {
+        synchronized (visitLogLock) {
+            String[] v = loadVisitLog6090().get(uid);
+            if (v == null) return null;
+            java.util.List<String> meta = new java.util.ArrayList<>();
+            meta.add(v[0]);
+            meta.add(v[1]);
+            meta.add(v[2]);
+            return meta;
+        }
     } catch (Throwable t) {
-        log("6.0.90 隐身访问: 标记异常 " + t.getMessage() + "，退回吞掉上报");
-        return false;
+        return null;
     }
 }
+
+private static void hookMyVisitHistory6090(ClassLoader cl) {
+    if (!readStealthConfig("stealth_visit_log", true)) return;
+    try {
+        Class<?> worker = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.model.WhoLookMeModel$d", cl);
+        if (worker == null) {
+            log("6.0.90 足迹: 未找到 WhoLookMeModel$d");
+            return;
+        }
+        XposedBridge.hookAllMethods(worker, "a", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    Object result = p.getResult();
+                    if (!(result instanceof java.util.List)) return;
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> list = (java.util.List<Object>) result;
+
+                    java.util.Set<Integer> existing = new java.util.HashSet<>();
+                    for (Object item : list) {
+                        try {
+                            Object id = XposedHelpers.callMethod(item, "getUserid");
+                            if (id instanceof Integer) existing.add((Integer) id);
+                        } catch (Throwable ignored) {}
+                    }
+
+                    java.util.List<int[]> missing = readMissingVisitIds6090(existing);
+                    if (missing.isEmpty()) return;
+
+                    for (int[] rec : missing) {
+                        Object item = buildVisitItem6090(rec[0], rec[1]);
+                        if (item != null) list.add(item);
+                    }
+                    log("6.0.90 足迹: 已补入 " + missing.size() + " 条本地访问记录");
+                } catch (Throwable t) {
+                    log("6.0.90 足迹补入失败: " + t.getMessage());
+                }
+            }
+        });
+        log("6.0.90 足迹: Hook WhoLookMeModel$d.a 注册成功");
+    } catch (Throwable t) {
+        log("6.0.90 足迹 Hook 失败: " + t.getMessage());
+    }
+}
+
+// 构造一个列表项（com.hellotalk.profile.mvvm.model.l）。失败返回 null。
+private static Object buildVisitItem6090(int uid, long ts) {
+    try {
+        Class<?> cls = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.model.l", hostClassLoader);
+        if (cls == null) return null;
+        Object item = cls.getDeclaredConstructor().newInstance();
+        XposedHelpers.callMethod(item, "setUserid", uid);
+        try { XposedHelpers.setIntField(item, "roomStatus", 0); } catch (Throwable ignored) {}
+        try { XposedHelpers.setLongField(item, "visitTs", ts); } catch (Throwable ignored) {}
+        try { XposedHelpers.setIntField(item, "visitStatus", 0); } catch (Throwable ignored) {}
+        try { XposedHelpers.setIntField(item, "visitInvisible", 1); } catch (Throwable ignored) {}
+        String nick = null, head = null, nat = null;
+        try {
+            java.util.List<String> meta = readLocalVisitMeta6090(uid);
+            if (meta != null) {
+                nick = meta.get(0);
+                head = meta.get(1);
+                nat = meta.get(2);
+            }
+        } catch (Throwable ignored) {}
+        if (nick != null && !nick.isEmpty()) {
+            try { XposedHelpers.setObjectField(item, "nickname", nick); } catch (Throwable ignored) {}
+        }
+        if (head != null && !head.isEmpty()) {
+            try { XposedHelpers.setObjectField(item, "headurl", head); } catch (Throwable ignored) {}
+        }
+        if (nat != null && !nat.isEmpty()) {
+            try { XposedHelpers.setObjectField(item, "nationality", nat); } catch (Throwable ignored) {}
+        }
+        return item;
+    } catch (Throwable t) {
+        log("6.0.90 足迹构造失败 uid=" + uid + ": " + t.getMessage());
+        return null;
+    }
+}
+
 
     private static void updateFromChatUser(Object chatUser) {
     try {

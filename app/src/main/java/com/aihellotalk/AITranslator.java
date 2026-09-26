@@ -260,15 +260,6 @@ public static String getRetryMode() { return retryMode.get(); }
 
 // 给 ChatHook 新版实时消息列表读取使用。
 // 只返回设置里的上下文条数，不改变任何 AI 逻辑。
-public static int getMaxChatMessagesForHook() {
-    int n = readConfigInt("max_chat_messages", 30);
-
-    if (n < 0) n = 0;
-    if (n > 200) n = 200;
-
-    return n;
-}
-
 public static int getLiveContextMax() {
     int n = readConfigInt("live_context_max", 30);
 

@@ -1150,133 +1150,6 @@ added++;
     }
 }
 
-// ===== 6.0.90：直接从新版聊天页真实消息列表读取 =====
-//
-// 6.0.90 的 ChatDetailFragment 已无 H3()/L3()/Q3()，消息列表结构调整为：
-//   ChatDetailFragment.getAdapter() -> q01.a(ChatMessageAdapter)
-//   q01.a.w() -> g11.a(消息数据源)，字段 a = List<u21.a>
-//   u21.a.a / u21.a.d() -> HTIMMessage
-// 只在 6.0.90 生效（调用点已用 isHt6090 分流），5.7.0/6.4.0 不进入。
-private static String buildHt6090LiveChatContext(int maxCount) {
-
-    Object fragment = currentChatDetailFragment;
-    if (fragment == null) {
-        log("6.0.90 实时上下文: currentChatDetailFragment=null");
-        return null;
-    }
-
-    try {
-        Object adapter = XposedHelpers.callMethod(fragment, "getAdapter");
-        if (adapter == null) {
-            log("6.0.90 实时上下文: getAdapter()=null");
-            return null;
-        }
-
-        Object dataSource = XposedHelpers.callMethod(adapter, "w");
-        if (dataSource == null) {
-            log("6.0.90 实时上下文: adapter.w()=null");
-            return null;
-        }
-
-        Object listObj = readFieldQuiet(dataSource, "a");
-        if (!(listObj instanceof java.util.List)) {
-            log("6.0.90 实时上下文: g11.a.a 不是 List: "
-                    + (listObj == null ? "null" : listObj.getClass().getName()));
-            return null;
-        }
-
-        java.util.List<?> items = (java.util.List<?>) listObj;
-        if (items.isEmpty()) {
-            log("6.0.90 实时上下文: 消息列表为空");
-            return null;
-        }
-
-        int wanted = maxCount;
-        if (wanted < 0) wanted = 0;
-        if (wanted > 80) wanted = 80;
-
-        if (wanted == 0) {
-            return "【程序直接读取的当前 HelloTalk 实时对话】\n"
-                    + "（用户已将上下文条数设置为0，本次没有提供任何历史聊天消息。）\n";
-        }
-
-        int start = Math.max(0, items.size() - wanted);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("【程序直接读取的当前 HelloTalk 实时对话】\n");
-        sb.append("说明：以下内容直接来自当前聊天页面的真实消息列表，")
-          .append("不是模块缓存，也不是聊天ID。")
-          .append("回答时应优先相信这里的内容。\n");
-
-        int added = 0;
-
-        for (int i = start; i < items.size(); i++) {
-            Object wrapper = items.get(i);
-            if (wrapper == null) continue;
-
-            Object msg = null;
-            try {
-                msg = XposedHelpers.callMethod(wrapper, "d");
-            } catch (Throwable e) {
-                msg = readFieldQuiet(wrapper, "a");
-            }
-            if (msg == null) continue;
-
-            try {
-                Object mineObj = null;
-                try {
-                    mineObj = XposedHelpers.callMethod(msg, "isSender");
-                } catch (Throwable ignored) {}
-                boolean mine = mineObj instanceof Boolean && ((Boolean) mineObj);
-
-                String content = extractHt6090MessageText(msg, mine);
-
-                String currentType = String.valueOf(
-                        XposedHelpers.callMethod(msg, "getMsgType"));
-                if (("image".equals(currentType) || "photo".equals(currentType))
-                        && getImageFileForHt6090(msg) == null) {
-                    requestHt6090ImageDownload(msg, false);
-                }
-
-                if (content == null || content.trim().isEmpty()) continue;
-                content = content.trim();
-
-                if (currentChatId != null && currentChatId.equals(content)) continue;
-                if (AITranslator.isNoHistoryText(content)) continue;
-
-                String quotePrefix = liveReplyPrefix(msg);
-                if (quotePrefix == null) quotePrefix = "";
-
-                sb.append(mine ? "我" : "对方")
-                  .append(quotePrefix)
-                  .append("：")
-                  .append(content)
-                  .append("\n");
-
-                added++;
-            } catch (Throwable one) {
-                log("6.0.90 实时上下文单条解析失败: "
-                        + one.getClass().getSimpleName() + ": " + one.getMessage());
-            }
-        }
-
-        if (added == 0) {
-            log("6.0.90 实时上下文: 找到列表但没有可用消息");
-            return null;
-        }
-
-        log("6.0.90 实时上下文读取成功: items=" + items.size()
-                + " messages=" + added);
-
-        return sb.toString();
-
-    } catch (Throwable t) {
-        log("6.0.90 实时上下文读取失败: "
-                + t.getClass().getSimpleName() + ": " + t.getMessage());
-        return null;
-    }
-}
-
 // ===== 6.0.90：按未混淆 HTIMMessage API 读取消息内容 =====
 // 6.0.90 不再使用 6.4.0 的 M()/B()，而是 getMsgType()/getMessageContent()。
 private static String extractHt6090MessageText(Object msg, boolean mine) {
@@ -3421,18 +3294,19 @@ String pbmLiveContext = null;
 // ===== 新版：括号问答直接使用 HelloTalk 当前真实消息列表 =====
 //
 // 只处理：
-// 1. 新版 HelloTalk
+// 1. 新版 HelloTalk（6.4.0）
 // 2. 括号问答模式
 // 3. 没有显式选择回复对象
 //
+// 6.0.90 已对齐 5.7.0：不用实时列表，只吃历史文件（见 AITranslator.askAiQuestionLive
+// 的 includeHistory）。这样零重复、干净。
 // 已经正常工作的：普通翻译 / 回复框翻译 / 旧版 HelloTalk
 // 都不会进入这里。
 if (pbm
-        && newReplyControllerDetected) {
+        && newReplyControllerDetected
+        && !isHt6090Detected) {
 
-    pbmLiveContext = isHt6090Detected
-            ? buildHt6090LiveChatContext(AITranslator.getMaxChatMessagesForHook())
-            : buildNewLiveChatContext(AITranslator.getLiveContextMax());
+    pbmLiveContext = buildNewLiveChatContext(AITranslator.getLiveContextMax());
 
     if (pbmLiveContext != null && !pbmLiveContext.trim().isEmpty()) {
         log("新版括号问答已使用实时聊天列表");
@@ -3501,15 +3375,14 @@ if (pbm && newReplyControllerDetected) {
 // ===== 新版普通翻译：读取当前页面真实聊天上下文 =====
 //
 // 括号问答前面已经单独处理。
-// 这里给新版普通翻译和新版回复框翻译准备真实上下文，
-// 用于替代已经确认有问题的模块旧 history。
+// 这里给新版普通翻译和新版回复框翻译准备真实上下文。
+// 6.0.90 已对齐 5.7.0：不用实时列表，只吃历史文件（translateForPicker →
+// translateWithHistory 内部已按 max_chat_messages 截取），零重复。
 String liveTranslateContext = null;
 
-if (!pbm && newReplyControllerDetected) {
+if (!pbm && newReplyControllerDetected && !isHt6090Detected) {
 
-    liveTranslateContext = isHt6090Detected
-            ? buildHt6090LiveChatContext(AITranslator.getMaxChatMessagesForHook())
-            : buildNewLiveChatContext(AITranslator.getLiveContextMax());
+    liveTranslateContext = buildNewLiveChatContext(AITranslator.getLiveContextMax());
 }
             final String ftt = ttt;
             final String rci = text;

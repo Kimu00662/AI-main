@@ -2511,10 +2511,15 @@ private static void hookBlockSayHi6090(ClassLoader cl) {
     }
 }
 
-// ===== 6.0.90：隐身访问主页（不留脚印）=====
-// 逆向：进对方主页 -> OtherProfileViewModel$w -> OtherProfileModel.postProfileVisitorVisitRequest(uid, source)
-//   内部 new pt0/g() -> request() 上报“我访问了你”。
-// 这里直接拦上报方法，不发该请求，对方就看不到访问记录（无需 VIP）。
+// ===== 6.0.90：隐身访问主页（保留“我看了谁”记录 + 对目标隐身）=====
+// 逆向（6.0.90）：
+//   进对方主页 -> OtherProfileViewModel.loadVisitRequest(uid) -> $w 协程
+//     -> OtherProfileModel.postProfileVisitorVisitRequest(uid, source) -> new pt0/g() 上报“我访问了 uid”。
+//   服务器这次上报同时做两件事：① 记进“我看了谁”(userProfileMyHistory)；② 通知对方。
+//   旧实现直接吞掉上报：对方看不到（✓），但“我看了谁”也空了（✗）。
+//   官方 VIP 隐身的做法是先发 pt0/i(is_secret=true, uid) 把该 uid 标为隐身，再照常上报；
+//   服务器照记（自己可见）、对目标隐藏。
+// 现改为：先补发隐身标记，成功才放行上报；标记失败则退回“吞掉上报”，绝不露脚印。
 private static void hookInvisibleVisit6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_invisible_visit", false)) return;
     try {
@@ -2524,12 +2529,50 @@ private static void hookInvisibleVisit6090(ClassLoader cl) {
         XposedBridge.hookAllMethods(model, "postProfileVisitorVisitRequest", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam p) {
-                p.setResult(null);
+                int uid = 0;
+                try {
+                    if (p.args != null && p.args.length > 0 && p.args[0] instanceof Integer) {
+                        uid = (Integer) p.args[0];
+                    }
+                } catch (Throwable ignored) {}
+                if (!markVisitInvisible6090(uid)) {
+                    p.setResult(null);
+                }
             }
         });
-        log("6.0.90 隐身访问主页: Hook 注册成功");
+        log("6.0.90 隐身访问主页: Hook 注册成功（保留记录+补发隐身标记）");
     } catch (Throwable t) {
         log("6.0.90 隐身访问主页 Hook 失败: " + t.getMessage());
+    }
+}
+
+// 发 pt0/i(is_secret=true, uid)，把该 uid 的访问标记为隐身。返回是否成功。
+private static boolean markVisitInvisible6090(int uid) {
+    try {
+        if (uid <= 0) return false;
+        Class<?> reqCls = XposedHelpers.findClassIfExists("pt0.i", hostClassLoader);
+        if (reqCls == null) {
+            log("6.0.90 隐身访问: 未找到 pt0.i，退回吞掉上报");
+            return false;
+        }
+        Object req = reqCls.getDeclaredConstructor().newInstance();
+        Method setSecret = reqCls.getDeclaredMethod("a", boolean.class);
+        setSecret.setAccessible(true);
+        setSecret.invoke(req, true);
+        Method setUid = reqCls.getDeclaredMethod("b", int.class);
+        setUid.setAccessible(true);
+        setUid.invoke(req, uid);
+        Method request = reqCls.getMethod("request");
+        request.setAccessible(true);
+        Object resp = request.invoke(req);
+        int code = -1;
+        try { code = new org.json.JSONObject(String.valueOf(resp)).optInt("code", -1); } catch (Throwable ignored) {}
+        boolean ok = (code == 200);
+        log("6.0.90 隐身访问: 标记 uid=" + uid + (ok ? " 成功" : " 失败") + " resp=" + resp);
+        return ok;
+    } catch (Throwable t) {
+        log("6.0.90 隐身访问: 标记异常 " + t.getMessage() + "，退回吞掉上报");
+        return false;
     }
 }
 

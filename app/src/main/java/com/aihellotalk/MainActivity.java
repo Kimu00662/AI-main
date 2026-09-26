@@ -281,8 +281,8 @@ protected void onResume() {
         new Thread(() -> {
 String out = runRoot(
         "cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null; echo '<<<HTAI_SEP>>>';"
-        + " find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -print 2>/dev/null; echo '<<<HTAI_SEP>>>';"
-        + " find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -print 2>/dev/null");
+        + " find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -print 2>/dev/null; echo '<<<HTAI_SEP>>>';"
+        + " find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -print 2>/dev/null");
 
             if (out == null) {
                 runOnUiThread(() -> updateMemStatus("noroot"));
@@ -368,9 +368,9 @@ String out = runRoot(
             runRoot("mkdir -p /data/data/com.hellotalk/files");
             runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files 2>/dev/null");
             runRoot("chmod 777 /data/data/com.hellotalk/files 2>/dev/null");
-            runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec cp {} /data/data/com.hellotalk/files/ \\; 2>/dev/null");
-            runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chmod 666 {} \\; 2>/dev/null");
-            runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chown $(stat -c %u:%g /data/data/com.hellotalk) {} \\; 2>/dev/null");
+            runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec cp {} /data/data/com.hellotalk/files/ \\; 2>/dev/null");
+            runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chmod 666 {} \\; 2>/dev/null");
+            runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chown $(stat -c %u:%g /data/data/com.hellotalk) {} \\; 2>/dev/null");
 
             // 仅在用户勾选时恢复原生数据库（带版本校验）
             String dbMsg = "";
@@ -487,10 +487,10 @@ String out = runRoot(
         Toast.makeText(this, "备份中...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             runRoot("mkdir -p /data/local/tmp/htai_store"
-                    + " && find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec cp {} /data/local/tmp/htai_store/ \\; 2>/dev/null"
-                    + " && find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chmod 600 {} \\; 2>/dev/null");
+                    + " && find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec cp {} /data/local/tmp/htai_store/ \\; 2>/dev/null"
+                    + " && find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chmod 600 {} \\; 2>/dev/null");
             backupNativeDb();
-            String storeLs = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
+            String storeLs = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' 2>/dev/null");
             boolean ok = storeLs != null && !storeLs.trim().isEmpty();
             runOnUiThread(() -> Toast.makeText(MainActivity.this,
                     ok ? "✅ 保险箱已有备份" : "❌ 备份失败",
@@ -531,14 +531,14 @@ String out = runRoot(
     private void switchToTemp() {
         Toast.makeText(this, "正在切换一次性模式...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
-            String sandboxLs0 = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
+            String sandboxLs0 = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' 2>/dev/null");
             boolean sandboxHas0 = sandboxLs0 != null && !sandboxLs0.trim().isEmpty();
 
             if (sandboxHas0) {
                 runRoot("mkdir -p /data/local/tmp/htai_store"
-                        + " && find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec cp {} /data/local/tmp/htai_store/ \\; 2>/dev/null"
-                        + " && find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chmod 600 {} \\; 2>/dev/null");
-                String storeLs = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
+                        + " && find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec cp {} /data/local/tmp/htai_store/ \\; 2>/dev/null"
+                        + " && find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chmod 600 {} \\; 2>/dev/null");
+                String storeLs = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' 2>/dev/null");
                 boolean storeOk = storeLs != null && !storeLs.trim().isEmpty();
                 if (!storeOk) {
                     runOnUiThread(() -> Toast.makeText(MainActivity.this,
@@ -546,7 +546,7 @@ String out = runRoot(
                             Toast.LENGTH_LONG).show());
                     return;
                 }
-                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -delete 2>/dev/null");
+                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -delete 2>/dev/null");
             }
 
             backupNativeDb();
@@ -580,16 +580,16 @@ String out = runRoot(
     private void switchToMain(boolean restoreNativeDb) {
         Toast.makeText(this, "正在切换主账号模式...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
-            String sandboxLs = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
+            String sandboxLs = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' 2>/dev/null");
             boolean sandboxHas = sandboxLs != null && !sandboxLs.trim().isEmpty();
 
             if (!sandboxHas) {
                 runRoot("mkdir -p /data/data/com.hellotalk/files");
                 runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files 2>/dev/null");
                 runRoot("chmod 777 /data/data/com.hellotalk/files 2>/dev/null");
-                runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec cp {} /data/data/com.hellotalk/files/ \\; 2>/dev/null");
-                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chmod 666 {} \\; 2>/dev/null");
-                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -exec chown $(stat -c %u:%g /data/data/com.hellotalk) {} \\; 2>/dev/null");
+                runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec cp {} /data/data/com.hellotalk/files/ \\; 2>/dev/null");
+                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chmod 666 {} \\; 2>/dev/null");
+                runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -exec chown $(stat -c %u:%g /data/data/com.hellotalk) {} \\; 2>/dev/null");
             }
 
             String dbMsg = "";
@@ -614,8 +614,8 @@ String out = runRoot(
     private void showMemoryFiles() {
         new Thread(() -> {
             String marker = runRoot("cat /data/local/tmp/htai_mem_mode.txt 2>/dev/null");
-            String sandbox = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -print 2>/dev/null");
-            String store = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' -print 2>/dev/null");
+            String sandbox = runRoot("find /data/data/com.hellotalk/files -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -print 2>/dev/null");
+            String store = runRoot("find /data/local/tmp/htai_store -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' -print 2>/dev/null");
 
             StringBuilder sb = new StringBuilder();
             sb.append("【模式标记】\n").append(marker == null ? "读取失败" : marker.trim())

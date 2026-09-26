@@ -892,7 +892,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             String[] names = dir.list();
             if (names == null) return false;
             for (String n : names) {
-                if (n != null && n.startsWith("htai_") && !"htai_visit_log.txt".equals(n)) return true;
+                if (n != null && n.startsWith("htai_") && !n.startsWith("htai_visit_log.txt")) return true;
             }
         } catch (Throwable ignored) {}
         return false;
@@ -901,7 +901,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
     private static boolean storeHasBackup() {
         try {
             String out = runRoot("find " + STORE_DIR
-                    + " -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt' 2>/dev/null");
+                    + " -maxdepth 1 -type f -name 'htai_*' ! -name 'htai_visit_log.txt*' 2>/dev/null");
             return out != null && !out.trim().isEmpty();
         } catch (Throwable e) { return false; }
     }
@@ -976,21 +976,21 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             lastBackupTs = now;
             String sandboxLs = runRoot("find /data/data/com.hellotalk/files"
                     + " -maxdepth 1 -type f -name 'htai_*'"
-                    + " ! -name 'htai_visit_log.txt' 2>/dev/null");
+                    + " ! -name 'htai_visit_log.txt*' 2>/dev/null");
             if (sandboxLs == null || sandboxLs.trim().isEmpty()) return;
             runRoot("mkdir -p " + STORE_DIR
                     + " && rm -f " + STORE_DIR + "/htai_visit_log.txt "
                     + STORE_DIR + "/htai_visit_log.txt.tmp 2>/dev/null"
                     + " && find " + STORE_DIR
                     + " -maxdepth 1 -type f -name 'htai_*'"
-                    + " ! -name 'htai_visit_log.txt' -delete 2>/dev/null"
+                    + " ! -name 'htai_visit_log.txt*' -delete 2>/dev/null"
                     + " && find /data/data/com.hellotalk/files"
                     + " -maxdepth 1 -type f -name 'htai_*'"
-                    + " ! -name 'htai_visit_log.txt'"
+                    + " ! -name 'htai_visit_log.txt*'"
                     + " -exec cp {} " + STORE_DIR + "/ \\;"
                     + " && find " + STORE_DIR
                     + " -maxdepth 1 -type f -name 'htai_*'"
-                    + " ! -name 'htai_visit_log.txt'"
+                    + " ! -name 'htai_visit_log.txt*'"
                     + " -exec chmod 600 {} \\;");
         } catch (Throwable ignored) {}
     }

@@ -2501,9 +2501,9 @@ private static void writeVisitLog6090(java.util.LinkedHashMap<Integer, String[]>
     } catch (Throwable ignored) {}
 }
 
-// 返回本地记录中“不在服务器列表”的 uid+时间戳（按访问时间倒序）。
-private static java.util.List<int[]> readMissingVisitIds6090(java.util.Set<Integer> existing) {
-    java.util.List<int[]> out = new java.util.ArrayList<>();
+// 返回本地记录中“不在服务器列表”的 uid+访问时间戳（毫秒，按时间倒序）。
+private static java.util.List<long[]> readMissingVisitIds6090(java.util.Set<Integer> existing) {
+    java.util.List<long[]> out = new java.util.ArrayList<>();
     try {
         synchronized (visitLogLock) {
             java.util.LinkedHashMap<Integer, String[]> map = loadVisitLog6090();
@@ -2513,9 +2513,9 @@ private static java.util.List<int[]> readMissingVisitIds6090(java.util.Set<Integ
             for (java.util.Map.Entry<Integer, String[]> e : entries) {
                 int uid = e.getKey();
                 if (uid <= 0 || existing.contains(uid)) continue;
-                long ts = 0;
+                long ts = System.currentTimeMillis();
                 try { ts = Long.parseLong(e.getValue()[3]); } catch (Throwable ignored) {}
-                out.add(new int[]{uid, (int) (ts / 1000)});
+                out.add(new long[]{uid, ts});
             }
         }
     } catch (Throwable ignored) {}
@@ -2540,6 +2540,49 @@ private static java.util.List<String> readLocalVisitMeta6090(int uid) {
 
 private static void hookMyVisitHistory6090(ClassLoader cl) {
     if (!readStealthConfig("stealth_visit_log", true)) return;
+
+    // 诊断：确认“我看了谁”页面的调用链到底走没走（只打日志，不改行为）
+    try {
+        Class<?> vm = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.viewmodel.VisitPageViewModel", cl);
+        if (vm != null) {
+            XposedBridge.hookAllMethods(vm, "loadVisitData", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    log("6.0.90 足迹诊断: loadVisitData 被调用 args="
+                            + (p.args != null && p.args.length > 0 ? p.args[0] : "?"));
+                }
+            });
+            log("6.0.90 足迹诊断: Hook VisitPageViewModel.loadVisitData 注册成功");
+        } else {
+            log("6.0.90 足迹诊断: 未找到 VisitPageViewModel");
+        }
+    } catch (Throwable t) {
+        log("6.0.90 足迹诊断(loadVisitData) 失败: " + t.getMessage());
+    }
+
+    try {
+        Class<?> model = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.model.WhoLookMeModel", cl);
+        if (model != null) {
+            XposedBridge.hookAllMethods(model, "loadMyHistory", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    log("6.0.90 足迹诊断: loadMyHistory 被调用");
+                }
+            });
+            XposedBridge.hookAllMethods(model, "getProfileMyHistoryRequest", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    log("6.0.90 足迹诊断: getProfileMyHistoryRequest 被调用");
+                }
+            });
+            log("6.0.90 足迹诊断: Hook loadMyHistory/getProfileMyHistoryRequest 注册成功");
+        }
+    } catch (Throwable t) {
+        log("6.0.90 足迹诊断(model) 失败: " + t.getMessage());
+    }
+
     try {
         Class<?> worker = XposedHelpers.findClassIfExists(
                 "com.hellotalk.profile.mvvm.model.WhoLookMeModel$d", cl);
@@ -2552,6 +2595,10 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
             protected void afterHookedMethod(MethodHookParam p) {
                 try {
                     Object result = p.getResult();
+                    log("6.0.90 足迹诊断: $d.a() 返回 "
+                            + (result == null ? "null" : result.getClass().getName()
+                               + " size=" + ((result instanceof java.util.List)
+                                   ? ((java.util.List<?>) result).size() : -1)));
                     if (!(result instanceof java.util.List)) return;
                     @SuppressWarnings("unchecked")
                     java.util.List<Object> list = (java.util.List<Object>) result;
@@ -2564,14 +2611,15 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
                         } catch (Throwable ignored) {}
                     }
 
-                    java.util.List<int[]> missing = readMissingVisitIds6090(existing);
+                    java.util.List<long[]> missing = readMissingVisitIds6090(existing);
                     if (missing.isEmpty()) return;
 
-                    for (int[] rec : missing) {
-                        Object item = buildVisitItem6090(rec[0], rec[1]);
-                        if (item != null) list.add(item);
+                    int added = 0;
+                    for (long[] rec : missing) {
+                        Object item = buildVisitItem6090((int) rec[0], rec[1]);
+                        if (item != null) { list.add(item); added++; }
                     }
-                    log("6.0.90 足迹: 已补入 " + missing.size() + " 条本地访问记录");
+                    log("6.0.90 足迹: 已补入 " + added + " / " + missing.size() + " 条本地访问记录");
                 } catch (Throwable t) {
                     log("6.0.90 足迹补入失败: " + t.getMessage());
                 }

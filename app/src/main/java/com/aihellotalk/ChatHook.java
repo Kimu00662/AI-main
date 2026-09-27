@@ -1899,6 +1899,8 @@ if (!AITranslator.canReceiveAny()) return;
                         key, newTranslation);
                 if (translation == null) {
                     translation = newTranslation;
+                    log("接收翻译开始: chatId=" + cid
+                            + " textHash=" + Integer.toHexString(ft.hashCode()));
                     receiveTranslateExecutor.execute(() -> {
                         AITranslator.setCallSource("receive");
                         try {
@@ -1917,7 +1919,8 @@ if (!AITranslator.canReceiveAny()) return;
                         } catch (Throwable error) {
                             log("接收翻译失败: chatId=" + cid
                                     + " textHash=" + Integer.toHexString(ft.hashCode())
-                                    + " error=" + error.getClass().getSimpleName());
+                                    + " error=" + error.getClass().getSimpleName()
+                                    + " msg=" + error.getMessage());
                             newTranslation.completeExceptionally(error);
                         } finally {
                             AITranslator.clearCallSource();

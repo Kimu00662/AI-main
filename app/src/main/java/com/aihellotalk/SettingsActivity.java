@@ -830,21 +830,23 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                     continue;
                 }
 
-                boolean hasConversation = false;
+                // 只有我真实发出过消息（role=assistant）的会话才算好友；
+                // 否则官方推送（只有 role=user 的系统通知）会被误建为好友。
+                boolean hasMyMessage = false;
                 for (int i = 0; i < history.length(); i++) {
                     JSONObject message = history.optJSONObject(i);
                     if (message == null) continue;
                     String role = message.optString("role", "");
                     String content = message.optString("content", "").trim();
-                    if (("user".equals(role) || "assistant".equals(role))
+                    if ("assistant".equals(role)
                             && !content.isEmpty()
                             && !content.matches("\\d{6,}")
                             && !content.startsWith("[")) {
-                        hasConversation = true;
+                        hasMyMessage = true;
                         break;
                     }
                 }
-                if (!hasConversation) continue;
+                if (!hasMyMessage) continue;
 
                 JSONObject info = new JSONObject();
                 info.put("name", "好友 " + chatId);

@@ -520,7 +520,7 @@ private static String getReasoningEffort() {
             String noteMsgId = "imgnote_" + Math.abs((imagePath + "_" + f.length()).hashCode());
             long ts = System.currentTimeMillis();
             appendHistory(chatId, noteMsgId, isMineImage ? "assistant" : "user", note, ts, null, false);
-            XposedBridge.log("HT_AI 图片记忆已写入: " + dedupeMark);
+            XposedBridge.log("HT_AI 图片记忆已写入: " + dedupeMark + " 描述=[" + desc + "]");
         } catch (Exception e) {
             XposedBridge.log("HT_AI 图片记忆失败: " + e.getMessage());
         }
@@ -1408,10 +1408,13 @@ try {
         }
     }
     if (imgMemories.length() > 0) {
+        XposedBridge.log("HT_AI 图片记忆注入: 条数=" + (imgCount - 1) + " 内容=[" + imgMemories.toString() + "]");
         userTextBuilder.append("【历史图片全局记忆】\n")
                 .append("以下是聊天中出现过的图片描述存档（AI 之前识别后保存）。如果用户提到以前的图片（如“刚才那张”），请优先参考这里：\n")
                 .append(imgMemories.toString())
                 .append("\n");
+    } else {
+        XposedBridge.log("HT_AI 图片记忆注入: 本次没有可注入的图片存档");
     }
 
     // 6.0.90 括号问答：合并模块历史文件，与 5.7.0 askAiQuestion 同款格式。

@@ -503,14 +503,9 @@ private static String getReasoningEffort() {
             body.put("temperature", 0.2);
             body.put("messages", messages);
 
-            String desc = executeRequestWith(getReverseTranslateClient(), body, false);
+            String desc = describeImageLockFree(body);
             if (desc == null) {
-                XposedBridge.log("HT_AI 图片记忆失败: 识别请求没有返回");
-                return;
-            }
-            desc = desc.trim().replaceAll("\\s+", " ").replace("*", "");
-            if (desc.isEmpty() || isRefusalResponse(desc)) {
-                XposedBridge.log("HT_AI 图片记忆失败: 识别结果为空或被拒绝");
+                XposedBridge.log("HT_AI 图片记忆失败: 未取得有效描述（已尝试所有可用端点）");
                 return;
             }
             if (desc.length() > 200) desc = desc.substring(0, 200);
@@ -524,6 +519,52 @@ private static String getReasoningEffort() {
         } catch (Exception e) {
             XposedBridge.log("HT_AI 图片记忆失败: " + e.getMessage());
         }
+    }
+
+    // 图片识别专用：不走全局轮换锁。否则一次 20~30 秒的识别会长时间占用锁，
+    // 把随后的点译堵在锁外（黑框提示迟迟不显示）。
+    // 逐个尝试可用端点，直到拿到像样的描述，避免某个不支持视觉的模型返回垃圾。
+    private static String describeImageLockFree(JSONObject baseBody) {
+        reloadEndpointsIfConfigChanged();
+        List<ApiEndpoint> candidates = new ArrayList<>();
+        for (ApiEndpoint ep : endpoints) {
+            if (ep.enabled && ep.canSend()) candidates.add(ep);
+        }
+        for (ApiEndpoint ep : candidates) {
+            try {
+                JSONObject reqBody = new JSONObject(baseBody.toString());
+                if (ep.model != null && !ep.model.isEmpty() && reqBody.has("model")) {
+                    reqBody.put("model", ep.model);
+                }
+                String d = executeSingleRequestOnce(ep.ensureClient(), reqBody, ep);
+                if (d == null) continue;
+                d = d.trim().replaceAll("\\s+", " ").replace("*", "");
+                if (d.isEmpty() || isRefusalResponse(d) || !isPlausibleImageDesc(d)) continue;
+                return d;
+            } catch (Throwable ignored) {}
+        }
+        return null;
+    }
+
+    // 过滤 ").  Right" 这类碎片：要求足够长度且含足够多的字母/汉字。
+    private static boolean isPlausibleImageDesc(String d) {
+        if (d == null || d.length() < 10) return false;
+        int meaningful = 0;
+        for (int i = 0; i < d.length(); i++) {
+            if (Character.isLetter(d.charAt(i))) meaningful++;
+        }
+        return meaningful >= 6;
+    }
+
+    // 旧版可能已写入垃圾描述（如 ").  Right"），注入前再挡一道，避免污染提问。
+    private static boolean isUsableImageNote(String note) {
+        if (note == null) return false;
+        int k = note.indexOf("AI识别内容：");
+        if (k < 0) return true;
+        int s = k + "AI识别内容：".length();
+        int e = note.indexOf("[图片识别:", s);
+        String desc = (e > s) ? note.substring(s, e) : note.substring(s);
+        return isPlausibleImageDesc(desc.trim());
     }
 
     private static final String STORE_DIR = "/data/local/tmp/htai_store";
@@ -1402,7 +1443,7 @@ try {
     int imgCount = 1;
     for (int i = 0; i < hist.length(); i++) {
         String c = hist.getJSONObject(i).optString("content", "");
-        if (c != null && (c.contains("【图片视觉存档】") || c.contains("[图片记忆:"))) {
+        if (c != null && (c.contains("【图片视觉存档】") || c.contains("[图片记忆:")) && isUsableImageNote(c)) {
             imgMemories.append("第").append(imgCount).append("张图片: ").append(c).append("\n");
             imgCount++;
         }

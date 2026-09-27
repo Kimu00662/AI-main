@@ -95,6 +95,14 @@ public class AITranslator {
     private static final File friendsFile = new File("/data/data/com.hellotalk/files/htai_friends.json");
     private static JSONObject friendsData = new JSONObject();
 
+    // 官方推送/系统通知会话（非真人聊天），永不作为遥控好友。
+    private static final Set<String> blockedFriendChatIds =
+            new HashSet<>(java.util.Arrays.asList("15322", "15046"));
+
+    public static boolean isBlockedFriendChatId(String chatId) {
+        return chatId != null && blockedFriendChatIds.contains(chatId.trim());
+    }
+
     private static final Object fileLock = new Object();
 
     private static final Pattern JAPANESE_PATTERN = Pattern.compile("[\\u3040-\\u30FF\\uFF65-\\uFF9F\\u30FC]+");
@@ -1835,6 +1843,7 @@ try {
     public static void registerFriend(String chatId, String name, String langCode, String nationality) {
         try {
             if (chatId == null || chatId.isEmpty()) return;
+            if (isBlockedFriendChatId(chatId)) return;
             JSONObject friend = new JSONObject();
             if (friendsData.has(chatId)) friend = friendsData.getJSONObject(chatId);
             if (name != null && !name.isEmpty()) friend.put("name", name);

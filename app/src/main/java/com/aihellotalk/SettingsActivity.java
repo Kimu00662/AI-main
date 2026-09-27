@@ -806,54 +806,62 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
                     ? new JSONObject()
                     : new JSONObject(friendsText);
 
-            String files = runRoot("ls -1 /data/data/com.hellotalk/files/htai_hist_*.json 2>/dev/null");
-            if (files == null || files.trim().isEmpty()) return;
-
+            // 清掉已误入的官方推送会话（旧版本遗留），保证它们不再出现。
             boolean changed = false;
-            for (String path : files.split("\\n")) {
-                String name = path.trim();
-                String prefix = "/data/data/com.hellotalk/files/htai_hist_";
-                String suffix = ".json";
-                if (!name.startsWith(prefix) || !name.endsWith(suffix)) continue;
+            for (String blocked : new String[]{"15322", "15046"}) {
+                if (friends.has(blocked)) { friends.remove(blocked); changed = true; }
+            }
 
-                String chatId = name.substring(prefix.length(), name.length() - suffix.length()).trim();
-                if (chatId.isEmpty() || "0".equals(chatId) || !chatId.matches("\\d+")) continue;
-                if (friends.has(chatId)) continue;
+            String files = runRoot("ls -1 /data/data/com.hellotalk/files/htai_hist_*.json 2>/dev/null");
+            if ((files == null || files.trim().isEmpty()) && !changed) return;
 
-                String historyText = runRoot("cat " + name + " 2>/dev/null");
-                if (historyText == null || historyText.trim().isEmpty()) continue;
+            if (files != null && !files.trim().isEmpty()) {
+                for (String path : files.split("\\n")) {
+                    String name = path.trim();
+                    String prefix = "/data/data/com.hellotalk/files/htai_hist_";
+                    String suffix = ".json";
+                    if (!name.startsWith(prefix) || !name.endsWith(suffix)) continue;
 
-                JSONArray history;
-                try {
-                    history = new JSONArray(historyText);
-                } catch (Exception ignored) {
-                    continue;
-                }
+                    String chatId = name.substring(prefix.length(), name.length() - suffix.length()).trim();
+                    if (chatId.isEmpty() || "0".equals(chatId) || !chatId.matches("\\d+")) continue;
+                    if (AITranslator.isBlockedFriendChatId(chatId)) continue;
+                    if (friends.has(chatId)) continue;
 
-                // 只有我真实发出过消息（role=assistant）的会话才算好友；
-                // 否则官方推送（只有 role=user 的系统通知）会被误建为好友。
-                boolean hasMyMessage = false;
-                for (int i = 0; i < history.length(); i++) {
-                    JSONObject message = history.optJSONObject(i);
-                    if (message == null) continue;
-                    String role = message.optString("role", "");
-                    String content = message.optString("content", "").trim();
-                    if ("assistant".equals(role)
-                            && !content.isEmpty()
-                            && !content.matches("\\d{6,}")
-                            && !content.startsWith("[")) {
-                        hasMyMessage = true;
-                        break;
+                    String historyText = runRoot("cat " + name + " 2>/dev/null");
+                    if (historyText == null || historyText.trim().isEmpty()) continue;
+
+                    JSONArray history;
+                    try {
+                        history = new JSONArray(historyText);
+                    } catch (Exception ignored) {
+                        continue;
                     }
-                }
-                if (!hasMyMessage) continue;
 
-                JSONObject info = new JSONObject();
-                info.put("name", "好友 " + chatId);
-                info.put("lang", "en");
-                info.put("lastTime", System.currentTimeMillis());
-                friends.put(chatId, info);
-                changed = true;
+                    // 只有我真实发出过消息（role=assistant）的会话才算好友；
+                    // 否则官方推送（只有 role=user 的系统通知）会被误建为好友。
+                    boolean hasMyMessage = false;
+                    for (int i = 0; i < history.length(); i++) {
+                        JSONObject message = history.optJSONObject(i);
+                        if (message == null) continue;
+                        String role = message.optString("role", "");
+                        String content = message.optString("content", "").trim();
+                        if ("assistant".equals(role)
+                                && !content.isEmpty()
+                                && !content.matches("\\d{6,}")
+                                && !content.startsWith("[")) {
+                            hasMyMessage = true;
+                            break;
+                        }
+                    }
+                    if (!hasMyMessage) continue;
+
+                    JSONObject info = new JSONObject();
+                    info.put("name", "好友 " + chatId);
+                    info.put("lang", "en");
+                    info.put("lastTime", System.currentTimeMillis());
+                    friends.put(chatId, info);
+                    changed = true;
+                }
             }
 
             if (!changed) return;

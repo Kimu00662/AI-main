@@ -1211,6 +1211,29 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
         return isRefusalResponse(result) ? fallback : result;
     }
 
+    // 接收翻译专用的拒绝判定：只认模型“明确拒绝作答”的句式。
+    // 不能沿用 isRefusalResponse 的孤立词（敏感/安全/露骨/规范…），
+    // 否则正常译文里出现这些词（如“敏感部位”）会被误杀、整条消息不翻译。
+    private static boolean isReceiveRefusal(String raw) {
+        if (raw == null) return false;
+        String t = raw.trim();
+        if (t.isEmpty() || t.length() > 800) return false;
+        String low = t.toLowerCase(Locale.ROOT);
+        String[] enMarks = {"i'm sorry","i am sorry","im sorry","sorry, but","sorry, i",
+                "i can't","i cannot","i'm unable","i am unable","not able to","i apologize",
+                "as an ai","as a language model","can't assist","cannot assist","unable to assist",
+                "against my","content policy","safety guideline"};
+        for (String m : enMarks) { if (low.contains(m)) return true; }
+
+        boolean apology = t.contains("抱歉") || t.contains("对不起");
+        boolean cant = t.contains("无法") || t.contains("不能") || t.contains("不便") || t.contains("拒绝");
+        if (apology && cant) return true;
+        if (t.contains("作为") && (t.contains("AI") || t.contains("人工智能") || t.contains("语言模型"))) return true;
+        if (cant && (t.contains("翻译") || t.contains("处理") || t.contains("协助")
+                || t.contains("回答") || t.contains("满足"))) return true;
+        return false;
+    }
+
     private static void loadDrafts() {
         try {
             if (draftsFile != null && draftsFile.exists()) {
@@ -2347,7 +2370,9 @@ private static boolean isDirtyHistoryContent(String content) {
                             throw e;
                         }
                     }
-                    if (retryReceive && isRefusalResponse(result)) {
+                    if (retryReceive && isReceiveRefusal(result)) {
+                        XposedBridge.log("HT_AI 接收翻译被判为拒绝，模型原文=["
+                                + (result.length() > 300 ? result.substring(0, 300) : result) + "]");
                         throw new IOException("接收翻译被模型拒绝");
                     }
                     return retryReceive ? result : refuseGuard(result, text);

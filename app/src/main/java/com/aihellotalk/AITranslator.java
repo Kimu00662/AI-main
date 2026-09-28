@@ -2500,7 +2500,7 @@ private static boolean isDirtyHistoryContent(String content) {
 
                         String formatProtocol = "\n\n【最高优先级输出格式控制】\n"
                     + "必须严格按以下格式输出，绝对禁止输出 JSON 或 Markdown 代码块！\n"
-                    + "1. 先写你的上半部分简短分析（务必精简干练，直接说结论）。\n"
+                    + "1. 先写你的上半部分分析（按本地 prompt 的要求完成）。\n"
                     + "2. 分析写完后，换行，直接输出 4 个翻译选项。\n"
                     + "3. 【核心死命令】：这4个选项的每一行开头，必须且只能用 👉 这个表情符号作为唯一标记！（不要带肤色，直接用 👉，不要加 1. 2. 3. 这种数字）。\n"
                     + "4. 选项的单行格式：👉 外语文本 | 中文大意 | 语气标签\n"
@@ -2561,7 +2561,7 @@ private static boolean isDirtyHistoryContent(String content) {
             if ("regenerate".equals(rm)) {
                 retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
             } else if ("fixFormat".equals(rm)) {
-                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分简短分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
             }
 
             String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + retryDirective + targetRule + contextRule;
@@ -2686,7 +2686,7 @@ public static String translateForPickerLive(
         String formatProtocol =
                 "\n\n【最高优先级输出格式控制】\n"
                 + "必须严格按以下格式输出，绝对禁止输出 JSON 或 Markdown 代码块！\n"
-                + "1. 先写你的上半部分简短分析（务必精简干练，直接说结论）。\n"
+                + "1. 先写你的上半部分分析（按本地 prompt 的要求完成）。\n"
                 + "2. 分析写完后，换行，直接输出 4 个翻译选项。\n"
                 + "3. 【核心死命令】：这4个选项的每一行开头，必须且只能用 👉 这个表情符号作为唯一标记！\n"
                 + "4. 选项的单行格式：👉 外语文本 | 中文大意 | 语气标签\n"
@@ -2744,7 +2744,7 @@ public static String translateForPickerLive(
         if ("regenerate".equals(rm)) {
             retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
         } else if ("fixFormat".equals(rm)) {
-            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分简短分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
         }
 
         String fullProtocol =

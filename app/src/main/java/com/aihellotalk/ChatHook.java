@@ -2777,57 +2777,6 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
     } catch (Throwable t) {
         log("6.0.90 足迹: Hook onListDataChange 失败: " + t.getMessage());
     }
-
-    // 诊断：确认 ViewHolder 到底绑定了哪些条目（含被注入的本地足迹 uid）。
-    // su0.n.h(User,int) 是 VisitPageFragment 列表项的实际绑定入口。
-    try {
-        Class<?> vh = XposedHelpers.findClassIfExists("su0.n", cl);
-        if (vh != null) {
-            XposedBridge.hookAllMethods(vh, "h", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam p) {
-                    try {
-                        Object u = (p.args != null && p.args.length > 0) ? p.args[0] : null;
-                        Object pos = (p.args != null && p.args.length > 1) ? p.args[1] : "?";
-                        Object id = null;
-                        if (u != null) id = XposedHelpers.callMethod(u, "getUserid");
-                        log("6.0.90 足迹: 绑定ViewHolder pos=" + pos + " userid=" + id
-                                + " cls=" + (u == null ? "null" : u.getClass().getSimpleName()));
-                    } catch (Throwable ignored) {}
-                }
-            });
-            log("6.0.90 足迹: Hook su0.n.h 注册成功");
-        }
-    } catch (Throwable t) {
-        log("6.0.90 足迹: Hook su0.n.h 失败: " + t.getMessage());
-    }
-
-    // 诊断：页面视图状态（内容/空/无更多），确认列表是不是被置成了空状态。
-    try {
-        Class<?> frag2 = XposedHelpers.findClassIfExists(
-                "com.hellotalk.profile.mvvm.view.fragment.VisitPageFragment", cl);
-        if (frag2 != null) {
-            XposedBridge.hookAllMethods(frag2, "onViewStatusChange", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam p) {
-                    try {
-                        Object v = (p.args != null && p.args.length > 0) ? p.args[0] : null;
-                        Object adapter = XposedHelpers.getObjectField(
-                                p.thisObject, "mWhoLookMeAdapter");
-                        Object cnt = null;
-                        if (adapter != null) {
-                            cnt = XposedHelpers.callMethod(adapter, "getItemCount");
-                        }
-                        log("6.0.90 足迹: onViewStatusChange status=" + v
-                                + " itemCount=" + cnt);
-                    } catch (Throwable ignored) {}
-                }
-            });
-            log("6.0.90 足迹: Hook onViewStatusChange 注册成功");
-        }
-    } catch (Throwable t) {
-        log("6.0.90 足迹: Hook onViewStatusChange 失败: " + t.getMessage());
-    }
 }
 
 // 构造一个列表项（com.hellotalk.profile.mvvm.model.l）。失败返回 null。

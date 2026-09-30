@@ -2707,9 +2707,12 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
                     if (missing.isEmpty()) return;
 
                     int added = 0;
+                    // missing 已是按访问时间倒序（最近在前），依次插到列表开头，
+                    // 让刚访问的人显示在“我看了谁”最上方（官方列表末尾追加会看不见）。
+                    int insertAt = 0;
                     for (long[] rec : missing) {
                         Object item = buildVisitItem6090((int) rec[0], rec[1]);
-                        if (item != null) { list.add(item); added++; }
+                        if (item != null) { list.add(insertAt++, item); added++; }
                     }
                     log("6.0.90 足迹: 已补入 " + added + " / " + missing.size() + " 条本地访问记录");
                 } catch (Throwable t) {

@@ -2721,6 +2721,46 @@ private static void hookMyVisitHistory6090(ClassLoader cl) {
     } catch (Throwable t) {
         log("6.0.90 足迹 Hook 失败: " + t.getMessage());
     }
+
+    // 官方列表刷新走 c81/c 的 DiffUtil 增量更新，而 A()/D() 里新旧列表可能指向同一个
+    // List 实例，被判定为“无变化”而不触发任何更新，导致已进入数据源的本地足迹不显示。
+    // 这里在列表变更后强制整表刷新一次兜底（仅本页面，条目少，代价可接受）。
+    try {
+        Class<?> frag = XposedHelpers.findClassIfExists(
+                "com.hellotalk.profile.mvvm.view.fragment.VisitPageFragment", cl);
+        if (frag != null) {
+            XposedBridge.hookAllMethods(frag, "onListDataChange", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    if (!readStealthConfig("stealth_visit_log", true)) return;
+                    try {
+                        Object o = (p.args != null && p.args.length > 0) ? p.args[0] : null;
+                        int sz = -1;
+                        if (o != null) {
+                            Object lst = XposedHelpers.callMethod(o, "a");
+                            if (lst instanceof java.util.List) {
+                                sz = ((java.util.List<?>) lst).size();
+                            }
+                        }
+                        Object adapter = XposedHelpers.getObjectField(
+                                p.thisObject, "mWhoLookMeAdapter");
+                        log("6.0.90 足迹: onListDataChange 后 list.size=" + sz
+                                + " adapter=" + (adapter != null));
+                        if (adapter != null) {
+                            XposedHelpers.callMethod(adapter, "notifyDataSetChanged");
+                        }
+                    } catch (Throwable t) {
+                        log("6.0.90 足迹: 强制刷新失败 " + t.getMessage());
+                    }
+                }
+            });
+            log("6.0.90 足迹: Hook VisitPageFragment.onListDataChange 注册成功");
+        } else {
+            log("6.0.90 足迹: 未找到 VisitPageFragment");
+        }
+    } catch (Throwable t) {
+        log("6.0.90 足迹: Hook onListDataChange 失败: " + t.getMessage());
+    }
 }
 
 // 构造一个列表项（com.hellotalk.profile.mvvm.model.l）。失败返回 null。

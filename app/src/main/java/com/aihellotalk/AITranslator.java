@@ -1166,6 +1166,13 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
         return who + ": " + content + "\n";
     }
 
+    // 纯外语历史行：不带中文标注。
+    // 点译时若在上下文里混入中文，模型会锚定中文产出中式译文；
+    // 这里只保留说话人标签，历史正文保持纯外语。
+    private static String scriptLinePlain(String who, String content) {
+        return who + ": " + content + "\n";
+    }
+
     public static boolean isRefusalResponse(String raw) {
         if (raw == null) return false;
         String t = raw.trim();
@@ -2564,11 +2571,11 @@ for (int i = startIdx; i < fullHistory.length(); i++) {
         hasOther = true;
         scriptBuilder.append("[").append(visibleIndex).append("] ")
                 .append(prefix)
-                .append(scriptLine("对方", content, "中文意思"));
+                .append(scriptLinePlain("对方", content));
     } else if ("assistant".equals(role)) {
         scriptBuilder.append("[").append(visibleIndex).append("] ")
                 .append(prefix)
-                .append(scriptLine("我", content, "中文原意"));
+                .append(scriptLinePlain("我", content));
     }
 }
 
@@ -3559,8 +3566,8 @@ public static JSONArray loadHistory(String chatId) {
         maybeRecheckMode();
         final String rawContent = content;
         if (quotedText != null && !quotedText.isEmpty()) {
-            String who = "assistant".equals(role) ? "\u6211" : "\u5bf9\u65b9";
-            content = "\uff08" + who + "\u6b63\u5728\u5f15\u7528/\u56de\u590d\u6b64\u524d\u5bf9\u8bdd\uff1a\"" + quotedText + "\"\uff09\n" + content;
+            String who = "assistant".equals(role) ? "me" : "them";
+            content = "(reply to " + who + ": \"" + quotedText + "\")\n" + content;
         }
 
         List<JSONObject> distillBatch = null;

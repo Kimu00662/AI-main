@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 public class SettingsActivity extends Activity {
 
-    private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat, etBannedWords;
+    private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat;
     private EditText etLiveContextMax;
     private EditText etRequestTimeout, etReceiveTimeout;
     private android.widget.CheckBox cbShowApiSwitchHint;
@@ -232,11 +232,6 @@ public class SettingsActivity extends Activity {
         etReceiveTimeout = edit(prefs.getString("receive_timeout", "25"));
         etReceiveTimeout.setHint("对方外语自动翻译的最长等待秒数，默认25，范围5~300");
         advContentLayout.addView(etReceiveTimeout);
-
-        advContentLayout.addView(lab("全局违禁词库 (Banned Words & Symbols):"));
-        etBannedWords = bigEdit(prefs.getString("banned_words", ""));
-        etBannedWords.setHint("输入千万不能出现的词或标点，如：lol,破折号,;");
-        advContentLayout.addView(etBannedWords);
 
         ll.addView(advContentLayout);
         setupToggle(advHeaderLayout, advHeaderTitle, advContentLayout, "⚙️ 高级与安全设置", "adv_expanded");
@@ -1239,7 +1234,6 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         try { Double.parseDouble(tempStr); } catch (NumberFormatException e) { tempStr = "0.7"; }
 
         String maxTokensStr = etMaxTokens.getText().toString().trim();
-        String bannedStr = etBannedWords.getText().toString().trim();
         if (maxTokensStr.isEmpty()) maxTokensStr = "8000";
         try { Integer.parseInt(maxTokensStr); } catch (NumberFormatException e) { maxTokensStr = "8000"; }
 
@@ -1284,7 +1278,6 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("live_context_max", liveContextMaxStr);
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putString("max_tokens", maxTokensStr);
-        editor.putString("banned_words", bannedStr);
         editor.putString("request_timeout", reqTimeoutStr);
         editor.putString("receive_timeout", recvTimeoutStr);
         editor.putString("prompt_zh", zh);
@@ -1402,7 +1395,6 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
         final String finalMaxChatStr = maxChatStr;
         final String finalLiveContextMaxStr = liveContextMaxStr;
         final boolean finalShowApiSwitchHint = cbShowApiSwitchHint.isChecked();
-        final String finalBannedStr = bannedStr;
         final String fq1 = q1, fq2 = q2, fq3 = q3, fq4 = q4, fq5 = q5;
         
         new Thread(() -> {
@@ -1420,7 +1412,6 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
                         + "max_tokens=" + finalMaxTokensStr + "\n"
                         + "request_timeout=" + finalReqTimeoutStr + "\n"
                         + "receive_timeout=" + finalRecvTimeoutStr + "\n"
-                        + "banned_words=" + finalBannedStr + "\n"
                         + "reasoning_effort=" + finalEffortStr + "\n"
                         + "quick_1=" + fq1 + "\n"
                         + "quick_2=" + fq2 + "\n"

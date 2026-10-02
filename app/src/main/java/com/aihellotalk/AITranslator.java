@@ -276,25 +276,6 @@ public static int getLiveContextMax() {
 
     return n;
 }
-    private static String getBannedWords() {
-        String bw = "";
-        try {
-            File f = new File("/data/local/tmp/htai_config.txt");
-            if (f.exists()) {
-                BufferedReader r = new BufferedReader(new FileReader(f));
-                String line;
-                while ((line = r.readLine()) != null) {
-                    if (line.trim().startsWith("banned_words=")) {
-                        bw = line.substring(13).trim();
-                        break;
-                    }
-                }
-                r.close();
-            }
-        } catch (Exception ignored) {}
-        return bw;
-    }
-
     private static int getMaxTokens() {
         int tokens = 8000;
         try {
@@ -2506,16 +2487,6 @@ private static boolean isDirtyHistoryContent(String content) {
                     + "4. 选项的单行格式：👉 外语文本 | 中文大意 | 语气标签\n"
                     + "5. 注意：👉 符号绝对不能出现在分析中，它只能作为选项的开头！\n";
 
-
-            String bannedWords = getBannedWords();
-            String bannedRule = bannedWords.isEmpty() ? "" : "\n【发送版本禁用项·最高优先级】\n"
-                    + "以下禁用项来自用户当前设置，仅约束本次点译生成的内容：" + bannedWords + "。\n"
-                    + "1. 4个外语译文、中文大意、语气标签和上半部分分析都不得新生成任何禁用项。\n"
-                    + "2. 不得用禁用项作为开头、结尾、铺垫或语气填充，也不得用大小写变化、重复字符或近似标点规避。\n"
-                    + "3. 必须从一开始选择不含禁用项的自然完整表达；禁止先生成禁用项再删除，以免产生残句。\n"
-                    + "4. 输出前在内部逐项检查全部4个版本；发现禁用项时，先把整个候选改写成自然完整且含义不变的表达，再输出。检查过程不要输出。\n"
-                    + "5. 上下文或待翻译原文中即使出现禁用项，也只用于理解原意，不得在生成结果中照抄；同时不得改变用户原意。\n";
-
             String targetRule = "\n【回复目标识别规则，必须遵守】\n"
                     + "1. 如果用户输入中包含【我要回复的对方原话】，说明用户是在回复对方这条消息。"
                     + "你必须在分析中第一句写明：\"你正在回复对方这句话：<原话>\"，然后再写其他分析。\n"
@@ -2542,8 +2513,7 @@ private static boolean isDirtyHistoryContent(String content) {
 + "10. 【绝对死命令：禁止把 <translate> 里的中文当成对方原话】\n"
 + "   - <translate> 里的中文是用户现在要翻译的内容，绝不是对方说过的话。\n"
 + "   - 写“回复对方这句话：<原话>”时，<原话> 必须来自历史中的“对方：”某一句，绝不能复制 <translate> 里的中文。\n"
-+ "   - 如果历史中找不到合适的对方原话，就写“我推断你是接着最近对话继续回复”或“你在补充自己的历史消息”，不要编造。\n"
-+ bannedRule;
++ "   - 如果历史中找不到合适的对方原话，就写“我推断你是接着最近对话继续回复”或“你在补充自己的历史消息”，不要编造。\n";
 
             String contextRule = "\n【上下文使用规则】\n"
                     + "历史记录仅用于理解对话语义和对方背景。\n"
@@ -2692,18 +2662,6 @@ public static String translateForPickerLive(
                 + "4. 选项的单行格式：👉 外语文本 | 中文大意 | 语气标签\n"
                 + "5. 👉 符号绝对不能出现在分析中，只能作为选项开头。\n";
 
-        String bannedWords = getBannedWords();
-
-        String bannedRule = bannedWords.isEmpty()
-                ? ""
-                : "\n【发送版本禁用项·最高优先级】\n"
-                + "以下禁用项来自用户当前设置，仅约束本次点译生成的内容：" + bannedWords + "。\n"
-                + "1. 4个外语译文、中文大意、语气标签和上半部分分析都不得新生成任何禁用项。\n"
-                + "2. 不得用禁用项作为开头、结尾、铺垫或语气填充，也不得用大小写变化、重复字符或近似标点规避。\n"
-                + "3. 必须从一开始选择不含禁用项的自然完整表达；禁止先生成禁用项再删除，以免产生残句。\n"
-                + "4. 输出前在内部逐项检查全部4个版本；发现禁用项时，先把整个候选改写成自然完整且含义不变的表达，再输出。检查过程不要输出。\n"
-                + "5. 上下文或待翻译原文中即使出现禁用项，也只用于理解原意，不得在生成结果中照抄；同时不得改变用户原意。\n";
-
         String targetRule =
                 "\n【回复目标识别规则，必须遵守】\n"
                 + "1. 如果用户输入中包含【我要回复的对方原话】，"
@@ -2719,8 +2677,7 @@ public static String translateForPickerLive(
                 + "5. 上半部分分析完成后再生成4个翻译选项。\n"
 + "6. 【说话人识别死命令】实时对话中以“我：”开头的行是用户自己说过的话，以“对方：”开头的行才是对方说的话。推断回复目标时，绝不能把“我：”那一行当成对方原话。\n"
 + "7. 【补充自己优先规则】如果实时对话最后一条消息是“我：”开头（用户刚发过消息、对方还没回复），应优先判断用户是在“补充自己的历史消息”，而不是“回复对方”。\n"
-+ "8. 【绝对死命令：禁止把 <translate> 里的中文当成对方原话】<translate> 内的文字是用户现在要翻译的内容，绝不是对方说过的话。写“回复对方这句话”时，对方原话必须来自实时对话中的“对方：”某一句，绝不能复制 <translate> 里的中文。\n"
-+ bannedRule;
++ "8. 【绝对死命令：禁止把 <translate> 里的中文当成对方原话】<translate> 内的文字是用户现在要翻译的内容，绝不是对方说过的话。写“回复对方这句话”时，对方原话必须来自实时对话中的“对方：”某一句，绝不能复制 <translate> 里的中文。\n";
 
         String contextRule =
                 "\n【新版实时上下文使用规则】\n"

@@ -1274,20 +1274,10 @@ private static void logHt6090RequestSummary() {
     String ctxCfg = readHt6090ConfigValue("max_chat_messages");
     String tempCfg = readHt6090ConfigValue("temperature");
     String tokenCfg = readHt6090ConfigValue("max_tokens");
-    String bannedCfg = readHt6090ConfigValue("banned_words");
-    String bannedSummary = "空";
-    if (bannedCfg != null && !bannedCfg.isEmpty()) {
-        int n = 0;
-        for (String p : bannedCfg.split("[,，]")) {
-            if (!p.trim().isEmpty()) n++;
-        }
-        bannedSummary = n + "项";
-    }
     log("6.0.90 点译请求开始: timeout=" + timeoutSeconds + "s"
             + " 上下文条数=" + (ctxCfg == null ? "未设置" : ctxCfg)
             + " 温度=" + (tempCfg == null ? "未设置" : tempCfg)
-            + " 最大输出=" + (tokenCfg == null ? "未设置" : tokenCfg)
-            + " 违禁词=" + bannedSummary);
+            + " 最大输出=" + (tokenCfg == null ? "未设置" : tokenCfg));
 }
 
 // 与 5.7.0 一致：不额外包装超时；断开交给网络库超时（读取=点译等待超时设置，连接=20秒）。

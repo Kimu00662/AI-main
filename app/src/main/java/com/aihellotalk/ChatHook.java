@@ -70,6 +70,18 @@ private static volatile Object currentChatDetailFragment = null;
             new ConcurrentHashMap<>();
     private static final Set<String> recordedMsgIds = ConcurrentHashMap.newKeySet();
 
+    // 真实消息 mid -> 所属 chatId。在权威解码点 vb0.a$a.c 填充，
+    // 用于修正写历史时因全局 currentChatId 漂移导致的跨聊串写。
+    // 只登记真实 mid（n_ 前缀的文本哈希回退值不参与，避免误伤“同句发不同人”）。
+    private static final int MSGID_MAP_MAX = 4000;
+    private static final Map<String, String> msgIdToChatId =
+            new java.util.LinkedHashMap<String, String>(256, 0.75f, false) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > MSGID_MAP_MAX;
+                }
+            };
+
     // 记录已经确认由“我”发出的外语消息。
     private static final Set<String> knownOwnForeignTexts =
             ConcurrentHashMap.newKeySet();
@@ -338,6 +350,7 @@ private static Method getMethodFallback(Class<?> c, String oldName, String newNa
         // ===== 6.0.90 专用注册（函数内部自检，非 6.0.90 直接返回）=====
         try { hookStartChat6090(cl); } catch (Throwable ignored) {}
         try { hookRecv(cl); } catch (Throwable ignored) {}
+        try { hookMsgDecode6090(cl); } catch (Throwable ignored) {}
         try { hookLang(cl); } catch (Throwable ignored) {}
         try { hookBtnOld(cl); } catch (Throwable ignored) {}
         try { hookBtnNew(cl); } catch (Throwable ignored) {}
@@ -3027,8 +3040,10 @@ if ("chat_user_profile".equals(mid)) {
                 Object sto = invokeQuiet(mGetSendTime, msg);
                 if (sto instanceof Long) st = (Long) sto;
 
-                boolean isNew = recordedMsgIds.add(chatId + "_" + mid);
-                log("历史写入判定: chatId=" + chatId
+                // 权威 mid->chatId 优先，修正全局 currentChatId 漂移导致的跨聊串写。
+                final String effChatId = resolveAuthoritativeChatId(mid, chatId);
+                boolean isNew = recordedMsgIds.add(effChatId + "_" + mid);
+                log("历史写入判定: chatId=" + effChatId
         + " mid=" + mid
         + " isNew=" + isNew
         + " skip=" + shouldSkipHistory(text)
@@ -3036,19 +3051,19 @@ if ("chat_user_profile".equals(mid)) {
         + " text=[" + text + "]");
                                                                                          if (isNew && !shouldSkipHistory(text)) {
     String capturedQuote = null;
-    if (isMine && pendingSendChatId != null && pendingSendChatId.equals(chatId)) {
+    if (isMine && pendingSendChatId != null && pendingSendChatId.equals(effChatId)) {
         capturedQuote = pendingSendQuote;
         pendingSendQuote = null;
         pendingSendChatId = null;
     }
     if (capturedQuote == null) {
-        capturedQuote = extractQuoteForHistory(msg, chatId, isMine);
+        capturedQuote = extractQuoteForHistory(msg, effChatId, isMine);
     }
-    log("历史写入引用: chatId=" + chatId + " mid=" + mid + " quote=" + capturedQuote);
+    log("历史写入引用: chatId=" + effChatId + " mid=" + mid + " quote=" + capturedQuote);
     if (isMine) {
-        AITranslator.appendHistory(chatId, mid, "assistant", text, st, capturedQuote, false);
+        AITranslator.appendHistory(effChatId, mid, "assistant", text, st, capturedQuote, false);
     } else {
-        AITranslator.appendHistory(chatId, mid, "user", text, st, capturedQuote, false);
+        AITranslator.appendHistory(effChatId, mid, "user", text, st, capturedQuote, false);
     }
 }
 
@@ -3097,6 +3112,55 @@ if ("chat_user_profile".equals(mid)) {
     } catch (Throwable t) {
         log("hookRecv new B fail: " + t.getMessage());
     }
+}
+
+// 6.0.90：在 HelloTalk 权威解码点 vb0.a$a.c(int, JSONObject) 记录 mid->chatId。
+// 该处 chatId 由 from_id/to_id 算出并写入消息对象，是消息归属的唯一真源；
+// 避开在 getMessageContent 时机读 getChatId 得到 0 的问题。
+private static void hookMsgDecode6090(ClassLoader cl) {
+    if (!isHt6090Detected) return;
+    try {
+        Class<?> decoder = XposedHelpers.findClassIfExists("vb0.a$a", cl);
+        if (decoder == null) return;
+        XposedHelpers.findAndHookMethod(decoder, "c", int.class, org.json.JSONObject.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) {
+                        try {
+                            Object r = p.getResult();
+                            if (r == null) return;
+                            Object mid = XposedHelpers.callMethod(r, "getMsgId");
+                            Object cid = XposedHelpers.callMethod(r, "getChatId");
+                            if (mid == null || cid == null) return;
+                            if (!(cid instanceof Number)) return;
+                            int c = ((Number) cid).intValue();
+                            if (c <= 0) return;
+                            rememberMsgChatId(String.valueOf(mid), String.valueOf(c));
+                        } catch (Throwable ignored) {}
+                    }
+                });
+        log("6.0.90 消息解码 chatId 钩子注册成功");
+    } catch (Throwable t) {
+        log("6.0.90 消息解码 chatId 钩子失败: " + t.getMessage());
+    }
+}
+
+private static void rememberMsgChatId(String mid, String chatId) {
+    if (mid == null || mid.isEmpty() || mid.startsWith("n_")) return;
+    if (chatId == null || chatId.isEmpty() || "0".equals(chatId) || "null".equalsIgnoreCase(chatId)) return;
+    synchronized (msgIdToChatId) { msgIdToChatId.put(mid, chatId); }
+}
+
+private static String lookupMsgChatId(String mid) {
+    if (mid == null || mid.isEmpty() || mid.startsWith("n_")) return null;
+    synchronized (msgIdToChatId) { return msgIdToChatId.get(mid); }
+}
+
+// 以权威 mid->chatId 为准；查不到时退回调用方传入的 fallback。
+// 真实 mid 只可能属于一个会话，所以权威值优先于可能漂移的 currentChatId。
+private static String resolveAuthoritativeChatId(String mid, String fallback) {
+    String auth = lookupMsgChatId(mid);
+    return (auth != null) ? auth : fallback;
 }
 
 // 直接反射写字段，绕过所有方法名混淆
@@ -4578,13 +4642,13 @@ if (chatIdInvalid) return;
 
             if (st <= 0) st = System.currentTimeMillis();
 
-            final String fc = chatId;
+            final String fc = resolveAuthoritativeChatId(mid, chatId);
             final String fm = mid;
             final String ft = text;
             final long fst = st;
             String capturedQuote = null;
 
-            if (pendingSendChatId != null && pendingSendChatId.equals(chatId)) {
+            if (pendingSendChatId != null && pendingSendChatId.equals(fc)) {
                 capturedQuote = pendingSendQuote;
                 pendingSendQuote = null;
                 pendingSendChatId = null;
@@ -4592,7 +4656,7 @@ if (chatIdInvalid) return;
 
             final String fq = capturedQuote != null
                     ? capturedQuote
-                    : extractQuoteForHistory(msg, chatId, true);
+                    : extractQuoteForHistory(msg, fc, true);
 
             boolean isNew = recordedMsgIds.add(fc + "_" + fm);
             if (isNew && !shouldSkipHistory(text)) {

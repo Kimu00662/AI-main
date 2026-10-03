@@ -4403,20 +4403,14 @@ result = isHt6090Detected
         try {
             Object ri = invokeQuiet(mGetReplyInfo, msg);
             if (ri != null) {
-                Object rIs = invokeQuiet(mIsSender, ri);
-                boolean replyIsMine = (rIs instanceof Boolean) && ((Boolean) rIs);
-
                 Object rmt = invokeQuiet(mGetMsgType, ri);
                 String rmtS = (rmt != null) ? String.valueOf(rmt) : null;
 
                 if ("text".equals(rmtS) || "translate".equals(rmtS)) {
                     String rq = extractMessageTextByType(ri, rmtS);
                     if (rq != null && !rq.trim().isEmpty()) {
-                        if (replyIsMine) {
-                            String mc = AITranslator.getChineseByForeign(rq);
-                            if (mc == null) mc = AITranslator.getDraftFuzzy(rq);
-                            if (mc != null && !mc.trim().isEmpty()) return mc.trim();
-                        }
+                        // 引用块保持纯外语：被回复的消息本身是什么语言就存什么，
+                        // 不再把“我发的消息”转成中文（避免上下文混入中文）。
                         return rq.trim();
                     }
                 }

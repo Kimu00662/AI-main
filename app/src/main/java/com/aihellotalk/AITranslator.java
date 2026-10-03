@@ -3566,8 +3566,8 @@ public static JSONArray loadHistory(String chatId) {
         maybeRecheckMode();
         final String rawContent = content;
         if (quotedText != null && !quotedText.isEmpty()) {
-            String who = "assistant".equals(role) ? "me" : "them";
-            content = "(reply to " + who + ": \"" + quotedText + "\")\n" + content;
+            String target = "assistant".equals(role) ? "them" : "me";
+            content = "(reply to " + target + ": \"" + quotedText + "\")\n" + content;
         }
 
         List<JSONObject> distillBatch = null;

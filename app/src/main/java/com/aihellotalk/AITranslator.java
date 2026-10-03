@@ -2328,8 +2328,8 @@ private static boolean isDirtyHistoryContent(String content) {
                 String content = msg.optString("content", "");
                 if (content != null && content.equals(text)) continue;
                 String prefix = msg.optBoolean("oneTime", false) ? "[一次性上下文] " : "";
-                if ("user".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u5bf9\u65b9", content, "\u4e2d\u6587\u610f\u601d")); hasContext = true; }
-                else if ("assistant".equals(role)) { scriptBuilder.append(prefix).append(scriptLine("\u6211", content, "\u4e2d\u6587\u539f\u610f")); hasContext = true; }
+                if ("user".equals(role)) { scriptBuilder.append(prefix).append(scriptLinePlain("\u5bf9\u65b9", content)); hasContext = true; }
+                else if ("assistant".equals(role)) { scriptBuilder.append(prefix).append(scriptLinePlain("\u6211", content)); hasContext = true; }
             }
             if (!hasContext) scriptBuilder.append("\uff08\u6682\u65e0\u6709\u6548\u4e0a\u4e0b\u6587\uff09\n");
             scriptBuilder.append("\n\u3010\u7cfb\u7edf\u6307\u4ee4\u3011\n"

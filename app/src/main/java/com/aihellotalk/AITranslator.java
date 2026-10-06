@@ -2123,7 +2123,7 @@ private static boolean isDirtyHistoryContent(String content) {
                 if (!seenAnchor.add(norm)) continue;
 
                 items.add(new String[]{foreign, meaning, tone});
-                if (items.size() >= 2) break;
+                if (items.size() >= 4) break;
             }
         }
         // 如果靠 👉 抓到了，就直接返回，大功告成！
@@ -2136,7 +2136,7 @@ private static boolean isDirtyHistoryContent(String content) {
             if (opts != null) {
                 Set<String> seen = new HashSet<>();
                 for (int i = 0; i < opts.length(); i++) {
-                    if (items.size() >= 2) break;
+                    if (items.size() >= 4) break;
                     JSONObject o = opts.optJSONObject(i);
                     if (o == null) continue;
 
@@ -2188,7 +2188,7 @@ private static boolean isDirtyHistoryContent(String content) {
 
         Set<String> seen = new HashSet<>();
         for (String rawLine : optionsText.split("\n")) {
-            if (items.size() >= 2) break;
+            if (items.size() >= 4) break;
 
             String line = rawLine.trim().replace("*", "").replace("`", "").replace("\uff5c", "|").replace("｜", "|");
             if (line.isEmpty()) continue;
@@ -2488,7 +2488,7 @@ private static boolean isDirtyHistoryContent(String content) {
 
                         String formatProtocol = "\n\n【最高优先级输出格式控制】\n"
                     + "禁止输出 JSON 或 Markdown 代码块。\n"
-                    + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 2 个翻译选项。\n"
+                    + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 4 个翻译选项。\n"
                     + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文大意 | 语气标签。\n"
                     + "👉 只能作选项行开头，绝不能出现在分析中。\n";
 
@@ -2502,7 +2502,7 @@ private static boolean isDirtyHistoryContent(String content) {
                     + "还是在补充自己之前哪一条外语消息。然后在分析中第一句写明："
                     + "\"我推断你是在回复对方这句话：<推断原话>\" 或 \"我推断你是在补充自己这条历史消息：<推断原话>\"。"
                     + "如果无法判断，就写\"我推断你是接着最近对话继续回复\"。\n"
-                    + "4. 上半部分分析不得为空或敷衍，须完整写完本地 prompt 的要求（除非用户明确要求简短）；写完立即进入 2 个选项，不要扩写。\n"
+                    + "4. 上半部分分析不得为空或敷衍，须完整写完本地 prompt 的要求（除非用户明确要求简短）；写完立即进入 4 个选项，不要扩写。\n"
                     + "5. 【死命令：禁止意译国籍、禁止代入人设】你是绝对中立的翻译工具，没有个人身份；国家/文化名词必须字面直译，禁止把“中国”“日本”等换成“国产”“我国”“这里”“你们国家”等主观代词。\n"
 + "6. 【死命令：说话人识别】“我：”行是用户自己说的，“对方：”行才是对方说的。只有存在“对方：”行时才能写“回复对方这句话”，引用的原话必须来自“对方：”行，绝不能拿“我：”行当对方原话；若最后一条是“我：”，优先判为“补充自己的历史消息”。\n"
 + "7. 【死命令：<translate> 不是对方原话】<translate> 内是本次要翻译的内容，绝非对方说过的话。写“回复对方这句话”时原话必须取自历史“对方：”行，禁止复制 <translate> 内容；找不到合适原话就写“我推断你是接着最近对话继续回复”或“补充自己的历史消息”，不要编造。\n";
@@ -2515,15 +2515,15 @@ private static boolean isDirtyHistoryContent(String content) {
 
             String friendName = getFriendName(chatId);
             String nameHint = (friendName != null && !friendName.isEmpty() && !friendName.equals(chatId)) 
-                ? "\n\n【绝密警告：当前聊天对象是 " + friendName + "。在【上半部分分析】中可以自然地使用该昵称（如："+friendName+"）替代“对方”。但是！在生成【下方2个翻译选项】时，严禁把对方名字带入括号的潜台词里！潜台词必须短小精悍，绝不能在潜台词里生硬地提对方名字，也严禁替换原文人名！】" 
+                ? "\n\n【绝密警告：当前聊天对象是 " + friendName + "。在【上半部分分析】中可以自然地使用该昵称（如："+friendName+"）替代“对方”。但是！在生成【下方4个翻译选项】时，严禁把对方名字带入括号的潜台词里！潜台词必须短小精悍，绝不能在潜台词里生硬地提对方名字，也严禁替换原文人名！】" 
                 : "";
 
             String retryDirective = "";
             String rm = getRetryMode();
             if ("regenerate".equals(rm)) {
-                retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 2 个选项，不要重复上一批的译法。\n";
+                retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
             } else if ("fixFormat".equals(rm)) {
-                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 2 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
             }
 
             String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + retryDirective + targetRule + contextRule;
@@ -2648,7 +2648,7 @@ public static String translateForPickerLive(
         String formatProtocol =
                 "\n\n【最高优先级输出格式控制】\n"
                 + "禁止输出 JSON 或 Markdown 代码块。\n"
-                + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 2 个翻译选项。\n"
+                + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 4 个翻译选项。\n"
                 + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文大意 | 语气标签。\n"
                 + "👉 只能作选项行开头，绝不能出现在分析中。\n";
 
@@ -2688,9 +2688,9 @@ public static String translateForPickerLive(
         String retryDirective = "";
         String rm = getRetryMode();
         if ("regenerate".equals(rm)) {
-            retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 2 个选项，不要重复上一批的译法。\n";
+            retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
         } else if ("fixFormat".equals(rm)) {
-            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 2 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
         }
 
         String fullProtocol =

@@ -3153,6 +3153,7 @@ private static String executeSingleRequest(OkHttpClient useClient, JSONObject bo
 }
 
 private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {
+    long t0 = System.currentTimeMillis();
     Request req = new Request.Builder()
             .url(fixUrl(ep.url))
             .header("Authorization", "Bearer " + ep.key)
@@ -3161,12 +3162,18 @@ private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObjec
             .post(RequestBody.create(body.toString(), JSON_TYPE))
             .build();
     try (Response resp = useClient.newCall(req).execute()) {
+        long t1 = System.currentTimeMillis();
         String responseBody = resp.body() != null ? resp.body().string() : "";
+        long t2 = System.currentTimeMillis();
         if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + responseBody);
         try {
             JSONObject json = new JSONObject(responseBody);
             JSONObject choice = json.getJSONArray("choices").getJSONObject(0);
             String content = choice.getJSONObject("message").optString("content", "").trim();
+            JSONObject usage = json.optJSONObject("usage");
+            XposedBridge.log("HT_AI 耗时诊断: 端点=" + ep.slot + " 模型=" + ep.model
+                    + " 建连=" + (t1 - t0) + "ms 接收=" + (t2 - t1) + "ms 总计=" + (t2 - t0) + "ms"
+                    + " usage=" + (usage != null ? usage.toString() : "无"));
             if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
             return content;
         } catch (IOException e) { throw e; }

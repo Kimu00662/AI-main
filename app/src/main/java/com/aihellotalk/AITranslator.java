@@ -2489,7 +2489,8 @@ private static boolean isDirtyHistoryContent(String content) {
                         String formatProtocol = "\n\n【最高优先级输出格式控制】\n"
                     + "禁止输出 JSON 或 Markdown 代码块。\n"
                     + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 4 个翻译选项。\n"
-                    + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文大意 | 语气标签。\n"
+                    + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 逐字反向直译 | 语气标签。\n"
+                    + "第二栏必须是「逐字反向直译」：把这句外语的真实词汇和结构逐字直译回中文，惯用语可加括号注明真实含义；严禁照抄用户的中文原意，严禁用概括性大意代替，必须让用户看清这句外语字面上到底说了什么。\n"
                     + "👉 只能作选项行开头，绝不能出现在分析中。\n";
 
             String targetRule = "\n【回复目标识别规则，必须遵守】\n"
@@ -2508,10 +2509,11 @@ private static boolean isDirtyHistoryContent(String content) {
 + "7. 【死命令：<translate> 不是对方原话】<translate> 内是本次要翻译的内容，绝非对方说过的话。写“回复对方这句话”时原话必须取自历史“对方：”行，禁止复制 <translate> 内容；找不到合适原话就写“我推断你是接着最近对话继续回复”或“补充自己的历史消息”，不要编造。\n";
 
             String contextRule = "\n【上下文使用规则】\n"
-                    + "历史记录仅用于理解对话语义和对方背景。\n"
+                    + "历史记录用于理解对话语义和对方背景。\n"
+                    + "「对方：」行是对方的真实外语原话，可参考其语言形式（句子长短、随意度、口语化程度）让译文与之协调；但严禁模仿「我：」行的措辞（那是我自己发过的译文，可能带翻译腔），也严禁复制对方特有的口头禅或专属用词。\n"
                     + "不得继承历史中曾出现的极端、露骨、粗俗或一次性语气。\n"
                     + "历史中标记为[一次性上下文]的内容只表示它发生过，不代表长期风格。\n"
-                    + "本次翻译的语气只由 <translate> 内的当前原文决定。\n";
+                    + "本次翻译的语气、态度与情绪强度只由 <translate> 内的当前原文决定，不得因对方语气温和而弱化，也不得因对方激进就加码。\n";
 
             String friendName = getFriendName(chatId);
             String nameHint = (friendName != null && !friendName.isEmpty() && !friendName.equals(chatId)) 
@@ -2523,7 +2525,7 @@ private static boolean isDirtyHistoryContent(String content) {
             if ("regenerate".equals(rm)) {
                 retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
             } else if ("fixFormat".equals(rm)) {
-                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 逐字反向直译 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
             }
 
             String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + retryDirective + targetRule + contextRule;
@@ -2649,7 +2651,8 @@ public static String translateForPickerLive(
                 "\n\n【最高优先级输出格式控制】\n"
                 + "禁止输出 JSON 或 Markdown 代码块。\n"
                 + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 4 个翻译选项。\n"
-                + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文大意 | 语气标签。\n"
+                + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 逐字反向直译 | 语气标签。\n"
+                + "第二栏必须是「逐字反向直译」：把这句外语的真实词汇和结构逐字直译回中文，惯用语可加括号注明真实含义；严禁照抄用户的中文原意，严禁用概括性大意代替，必须让用户看清这句外语字面上到底说了什么。\n"
                 + "👉 只能作选项行开头，绝不能出现在分析中。\n";
 
         String targetRule =
@@ -2673,7 +2676,8 @@ public static String translateForPickerLive(
                 + "下面的聊天记录来自 HelloTalk 当前聊天页面正在使用的真实消息列表。\n"
                 + "这里才是本次分析的对话依据。\n"
                 + "不得根据 chatId、用户ID或其它纯数字编号编造聊天内容。\n"
-                + "本次翻译的文字只取 <translate> 内的当前原文。\n";
+                + "「对方：」行是对方的真实外语原话，可参考其语言形式（句子长短、随意度、口语化程度）让译文与之协调；但严禁模仿「我：」行的措辞（那是我自己发过的译文，可能带翻译腔），也严禁复制对方特有的口头禅或专属用词。\n"
+                + "本次翻译的文字只取 <translate> 内的当前原文，其语气、态度与情绪强度也只由该原文决定，不得因对方语气而增减。\n";
 
         String friendName = getFriendName(chatId);
 
@@ -2690,7 +2694,7 @@ public static String translateForPickerLive(
         if ("regenerate".equals(rm)) {
             retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 4 个选项，不要重复上一批的译法。\n";
         } else if ("fixFormat".equals(rm)) {
-            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文大意 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 4 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 逐字反向直译 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
         }
 
         String fullProtocol =
@@ -3459,17 +3463,17 @@ private static String fixUrl(String url) {
         if (promptRU.isEmpty()) promptRU = "\u4f60\u662f\u793e\u4ea4\u5634\u66ff\u3002\u628a\u4e2d\u6587\u8f6c\u6210\u5730\u9053\u4fc4\u8bed\u53e3\u8bed\uff0c4\u7248\u672c\u3002\u683c\u5f0f\uff1a\u5916\u6587|\u4e2d\u6587\u5927\u610f|\u6807\u7b7e\u3002";
         if (promptUK.isEmpty()) promptUK = "\u4f60\u662f\u793e\u4ea4\u5634\u66ff\u3002\u628a\u4e2d\u6587\u8f6c\u6210\u5730\u9053\u4e4c\u514b\u5170\u8bed\u53e3\u8bed\uff0c4\u7248\u672c\u3002\u683c\u5f0f\uff1a\u5916\u6587|\u4e2d\u6587\u5927\u610f|\u6807\u7b7e\u3002";
         if (promptKO.isEmpty()) promptKO = "\u4f60\u662f\u793e\u4ea4\u5634\u66ff\u3002\u628a\u4e2d\u6587\u8f6c\u6210\u5730\u9053\u97e9\u8bed\u53e3\u8bed\uff0c4\u7248\u672c\u3002\u683c\u5f0f\uff1a\u5916\u6587|\u4e2d\u6587\u5927\u610f|\u6807\u7b7e\u3002";
-        if (promptES.isEmpty()) promptES = "你是社交嘴替。把中文转成地道西班牙语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptAR.isEmpty()) promptAR = "你是社交嘴替。把中文转成地道阿拉伯语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptPT.isEmpty()) promptPT = "你是社交嘴替。把中文转成地道葡萄牙语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptFR.isEmpty()) promptFR = "你是社交嘴替。把中文转成地道法语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptDE.isEmpty()) promptDE = "你是社交嘴替。把中文转成地道德语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptIT.isEmpty()) promptIT = "你是社交嘴替。把中文转成地道意大利语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptTR.isEmpty()) promptTR = "你是社交嘴替。把中文转成地道土耳其语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptNL.isEmpty()) promptNL = "你是社交嘴替。把中文转成地道荷兰语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptPL.isEmpty()) promptPL = "你是社交嘴替。把中文转成地道波兰语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptKK.isEmpty()) promptKK = "你是社交嘴替。把中文转成地道哈萨克语口语，4版本。格式：外文|中文大意|标签。";
-        if (promptCS.isEmpty()) promptCS = "你是社交嘴替。把中文转成地道捷克语口语，4版本。格式：外文|中文大意|标签。";
+        if (promptES.isEmpty()) promptES = "你是社交嘴替。把中文转成地道西班牙语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptAR.isEmpty()) promptAR = "你是社交嘴替。把中文转成地道阿拉伯语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptPT.isEmpty()) promptPT = "你是社交嘴替。把中文转成地道葡萄牙语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptFR.isEmpty()) promptFR = "你是社交嘴替。把中文转成地道法语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptDE.isEmpty()) promptDE = "你是社交嘴替。把中文转成地道德语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptIT.isEmpty()) promptIT = "你是社交嘴替。把中文转成地道意大利语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptTR.isEmpty()) promptTR = "你是社交嘴替。把中文转成地道土耳其语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptNL.isEmpty()) promptNL = "你是社交嘴替。把中文转成地道荷兰语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptPL.isEmpty()) promptPL = "你是社交嘴替。把中文转成地道波兰语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptKK.isEmpty()) promptKK = "你是社交嘴替。把中文转成地道哈萨克语口语，4版本。格式：外文|逐字反向直译|标签。";
+        if (promptCS.isEmpty()) promptCS = "你是社交嘴替。把中文转成地道捷克语口语，4版本。格式：外文|逐字反向直译|标签。";
     }
 
     public static void savePrompts(String zh, String en, String ru, String uk) {

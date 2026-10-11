@@ -1325,6 +1325,19 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
         return max;
     }
 
+    // 子串式模糊匹配的置信度守卫：只有一方包含另一方、且较短一方足够长（≥4）
+    // 且占较长一方一半以上时才算命中。否则短词（如 "чем"）会误命中包含它的长句，
+    // 导致复制/选中消息被替换成无关的旧消息。
+    private static boolean isConfidentFuzzyMatch(String a, String b) {
+        if (a == null || b == null) return false;
+        if (a.equals(b)) return true;
+        if (!a.contains(b) && !b.contains(a)) return false;
+        int min = Math.min(a.length(), b.length());
+        int max = Math.max(a.length(), b.length());
+        if (max == 0) return false;
+        return min >= 4 && (double) min / max >= 0.5;
+    }
+
     public static String getForeignByDraftChinese(String zh) {
         if (zh == null || zh.trim().isEmpty()) return null;
         String clean = stripFlipMarks(zh);
@@ -3358,24 +3371,19 @@ private static String fixUrl(String url) {
             if (separator < 0) continue;
             String foreign = key.substring(separator + 1);
             String value = stripFlipMarks(entry.getValue());
-            if (clean.equals(value) || clean.contains(value) || value.contains(clean)) {
+            if (isConfidentFuzzyMatch(clean, value)) {
                 return foreign;
             }
         }
         
         for (Map.Entry<String, String> entry : mySentDrafts.entrySet()) {
             String k = stripFlipMarks(entry.getKey()), v = stripFlipMarks(entry.getValue());
-            if (v != null && (clean.equals(v) || clean.contains(v) || v.contains(clean))) return k;
+            if (isConfidentFuzzyMatch(clean, v)) return k;
         }
 
         for (Map.Entry<String, String> entry : chineseToForeign.entrySet()) {
             String k = stripFlipMarks(entry.getKey()), v = stripFlipMarks(entry.getValue());
-            if (clean.equals(k) || clean.contains(k) || k.contains(clean)) {
-                if (k.length() > 0 && clean.length() > 0) {
-                    double ratio = (double) clean.length() / k.length();
-                    if (ratio > 0.4 && ratio < 2.5) return v;
-                }
-            }
+            if (isConfidentFuzzyMatch(clean, k)) return v;
         }
         return null;
     }
@@ -3390,9 +3398,7 @@ private static String fixUrl(String url) {
         synchronized (mySentDrafts) {
             for (Map.Entry<String, String> entry : mySentDrafts.entrySet()) {
                 String k = stripFlipMarks(entry.getKey()), v = stripFlipMarks(entry.getValue());
-                if (clean.equals(k)) return v;
-                if (k != null && !k.isEmpty() && clean.contains(k) && (double) k.length() / clean.length() >= 0.45) return v;
-                if (k != null && !k.isEmpty() && k.contains(clean) && (double) clean.length() / k.length() >= 0.45) return v;
+                if (isConfidentFuzzyMatch(clean, k)) return v;
             }
         }
         return null;
@@ -3405,7 +3411,7 @@ private static String fixUrl(String url) {
         if (mySentDrafts.containsKey(clean)) return clean;
         for (Map.Entry<String, String> entry : mySentDrafts.entrySet()) {
             String f = stripFlipMarks(entry.getKey()), c = stripFlipMarks(entry.getValue());
-            if (clean.contains(c) || c.contains(clean) || clean.contains(f) || f.contains(clean)) return f;
+            if (isConfidentFuzzyMatch(clean, c) || isConfidentFuzzyMatch(clean, f)) return f;
         }
 
         if (foreignToChinese.containsKey(clean)) return clean;
@@ -3417,8 +3423,7 @@ private static String fixUrl(String url) {
             if (separator < 0) continue;
             String foreign = key.substring(separator + 1);
             String chinese = stripFlipMarks(entry.getValue());
-            if (clean.equals(chinese) || clean.contains(chinese) || chinese.contains(clean)
-                    || clean.equals(foreign) || clean.contains(foreign) || foreign.contains(clean)) {
+            if (isConfidentFuzzyMatch(clean, chinese) || isConfidentFuzzyMatch(clean, foreign)) {
                 return foreign;
             }
         }

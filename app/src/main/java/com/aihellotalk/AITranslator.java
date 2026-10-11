@@ -1344,7 +1344,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
         for (Map.Entry<String, String> e : mySentDrafts.entrySet()) {
             String k = stripFlipMarks(e.getKey()), v = stripFlipMarks(e.getValue());
             if (v == null || v.isEmpty()) continue;
-            if (clean.equals(v) || clean.contains(v) || v.contains(clean)) return k;
+            if (isConfidentFuzzyMatch(clean, v)) return k;
         }
         return null;
     }

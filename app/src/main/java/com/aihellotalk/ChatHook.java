@@ -1860,7 +1860,10 @@ CharSequence cs = (CharSequence) param.args[0];
 
                 // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
-                if (AITranslator.containsJapanese(s)) return;
+                // 纯日语（含假名、无其它外语字母）保持原文，避免把日文界面文案也翻乱；
+                // 日语只是夹杂在其它外语里（如俄语）时照常翻译
+                if (AITranslator.containsJapanese(s)
+                        && !AITranslator.hasNonJapaneseForeignLetters(s)) return;
 
                 // 自己发的：只查 mySentDrafts，命中只加 🌐
 String d = AITranslator.mySentDrafts.get(s);
@@ -3087,7 +3090,7 @@ if ("chat_user_profile".equals(mid)) {
                     return;
                 }
 
-                if (AITranslator.containsJapanese(text) || AITranslator.isChineseOnly(text)) return;
+                if (AITranslator.isChineseOnly(text)) return;
 
                 // 对方消息：只查缓存，不调API（翻译由 hookTextViewRender 负责）
                 String[] cached = AITranslator.getCached(mid);
@@ -4194,6 +4197,11 @@ result = isHt6090Detected
                 .setNegativeButton("取消", (d, w) -> {})
                 .setPositiveButton("🔄 换一批", (d, w) -> {
                     pendingRetryMode = "regenerate";
+                    // 选过版本后输入框里是外语，而「译」按钮入口要求中文，会直接 return；
+                    // 先还原成原始中文（保留「一次性」前缀），换一批才会真正重新请求。
+                    String base = (origChinese == null) ? "" : origChinese;
+                    edit.setText((oneTime ? "一次性：" : "") + base);
+                    edit.setSelection(edit.getText().length());
                     edit.post(() -> btn.performClick());
                 })
                 .create();

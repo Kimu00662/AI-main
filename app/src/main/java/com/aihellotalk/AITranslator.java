@@ -2011,7 +2011,8 @@ try {
 
     public static boolean needTranslateToChinese(String text) {
         if (text == null || text.trim().isEmpty()) return false;
-        if (containsJapanese(text)) return false;
+        // 纯日语（含假名、无其它外语字母）不翻译；夹杂在其它外语里的日语照常翻译
+        if (containsJapanese(text) && !hasNonJapaneseForeignLetters(text)) return false;
         boolean hasChinese = false, hasForeignAlpha = false;
         for (char c : text.toCharArray()) {
             if (!hasForeignAlpha && String.valueOf(c).matches("[a-zA-Z\u0430-\u044f\u0410-\u042f\u0451\u0401\u0456\u0406\u0457\u0407\u0454\u0404\u0491\u0490\\uAC00-\\uD7AF\u00e1\u00e9\u00ed\u00f3\u00fa\u00c1\u00c9\u00cd\u00d3\u00da\u00f1\u00d1\u00fc\u00dc\u00e4\u00f6\u00fc\u00df\u00c4\u00d6\u00dc]"))

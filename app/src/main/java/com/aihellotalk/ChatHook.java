@@ -2998,36 +2998,49 @@ final String chatId = eid;
                         }
                     }
                     if (draftChinese != null
-                            && !draftChinese.trim().isEmpty()
-                            && currentChatId != null
-                            && !currentChatId.trim().isEmpty()
-                            && !"0".equals(currentChatId)
-                            && !"null".equalsIgnoreCase(currentChatId)) {
-                        String registrationName = currentPartnerName;
-                        if (registrationName == null || registrationName.trim().isEmpty()) {
-                            registrationName = latestPartnerName;
+                            && !draftChinese.trim().isEmpty()) {
+                        // 用消息自身的权威归属（mid->chatId）建好友，而不是全局 currentChatId。
+                        // 切会话瞬间 currentChatId 会漂移，导致把发给 A 的消息登记到 B 名下。
+                        Object mioFriend = invokeQuiet(mGetMsgId, msg);
+                        String friendChatId = resolveAuthoritativeChatId(
+                                (mioFriend != null) ? String.valueOf(mioFriend) : null, chatId);
+                        if (friendChatId != null
+                                && !friendChatId.trim().isEmpty()
+                                && !"0".equals(friendChatId)
+                                && !"null".equalsIgnoreCase(friendChatId)) {
+                            // 若与选版发送时登记的会话不一致，宁可不建，不可串建。
+                            if (pendingFriendChatId != null
+                                    && !pendingFriendChatId.equals(friendChatId)) {
+                                log("跳过建好友：消息归属 chatId=" + friendChatId
+                                        + " 与选版会话 chatId=" + pendingFriendChatId + " 不一致");
+                            } else {
+                                String registrationName = currentPartnerName;
+                                if (registrationName == null || registrationName.trim().isEmpty()) {
+                                    registrationName = latestPartnerName;
+                                }
+                                if (registrationName == null || registrationName.trim().isEmpty()
+                                        || registrationName.equals(friendChatId)) {
+                                    registrationName = "好友 " + friendChatId;
+                                }
+                                String manualLang = chatLangOverride.get(friendChatId);
+                                String targetLang = (manualLang != null && !manualLang.isEmpty())
+                                        ? manualLang
+                                        : determineSmartTargetLang(latestNationality, latestNativeLang, friendChatId);
+                                AITranslator.registerFriend(friendChatId, registrationName, targetLang, latestNationality);
+                                log("新版通过 mySentDrafts 确认发送结果，创建HT遥控好友: chatId="
+                                        + friendChatId + " name=" + registrationName);
+                                pendingFriendRegister = false;
+                                pendingFriendChatId = null;
+                                pendingSelectedForeign = null;
+                                lastPickerResult = null;
+                                lastPickerOrig = null;
+                                lastPickerPns = null;
+                                lastPickerOneTime = false;
+                                uiHandler.post(() -> {
+                                    if (versionButton != null) versionButton.setVisibility(View.GONE);
+                                });
+                            }
                         }
-                        if (registrationName == null || registrationName.trim().isEmpty()
-                                || registrationName.equals(currentChatId)) {
-                            registrationName = "好友 " + currentChatId;
-                        }
-                        String manualLang = chatLangOverride.get(currentChatId);
-                        String targetLang = (manualLang != null && !manualLang.isEmpty())
-                                ? manualLang
-                                : determineSmartTargetLang(latestNationality, latestNativeLang, currentChatId);
-                        AITranslator.registerFriend(currentChatId, registrationName, targetLang, latestNationality);
-                        log("新版通过 mySentDrafts 确认发送结果，创建HT遥控好友: chatId="
-                                + currentChatId + " name=" + registrationName);
-                        pendingFriendRegister = false;
-                        pendingFriendChatId = null;
-                        pendingSelectedForeign = null;
-                        lastPickerResult = null;
-                        lastPickerOrig = null;
-                        lastPickerPns = null;
-                        lastPickerOneTime = false;
-                        uiHandler.post(() -> {
-                            if (versionButton != null) versionButton.setVisibility(View.GONE);
-                        });
                     }
                 } else if (pendingFriendRegister && isMine) {
                     registerPendingFriend(chatId, text);

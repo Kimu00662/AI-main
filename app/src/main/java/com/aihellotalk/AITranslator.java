@@ -1979,7 +1979,7 @@ try {
 
     public static boolean isChineseOnly(String text) {
         if (text == null || text.trim().isEmpty()) return false;
-        if (containsJapanese(text)) return false;
+        // 只要含汉字即视为中文输入；夹带任何语言（英/俄/西/韩/日…）都不再否决
         for (char c : text.toCharArray()) {
             Character.UnicodeBlock block = Character.UnicodeBlock.of(c);
             if (block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS

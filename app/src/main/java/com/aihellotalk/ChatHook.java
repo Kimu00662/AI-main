@@ -2836,6 +2836,10 @@ private static Object buildVisitItem6090(int uid, long ts) {
 
         if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
 
+        // 昵称加载完成后，把此前因未加载而存成「好友 <chatId>」的名字补回来
+        if (!latestPartnerName.isEmpty() && currentChatId != null && !currentChatId.isEmpty()) {
+            AITranslator.backfillFriendName(currentChatId, latestPartnerName);
+        }
         
         log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
     } catch (Throwable ignored) {}

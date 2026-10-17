@@ -1914,11 +1914,42 @@ try {
             if (isBlockedFriendChatId(chatId)) return;
             JSONObject friend = new JSONObject();
             if (friendsData.has(chatId)) friend = friendsData.getJSONObject(chatId);
-            if (name != null && !name.isEmpty()) friend.put("name", name);
-            else if (!friend.has("name")) friend.put("name", chatId);
+            boolean incomingIsPlaceholder = isPlaceholderFriendName(chatId, name);
+            boolean existingIsReal = friend.has("name")
+                    && !isPlaceholderFriendName(chatId, friend.optString("name", ""));
+            if (name != null && !name.isEmpty()) {
+                // 昵称未加载时的兜底名（好友 <chatId>）不得覆盖已有的真实昵称
+                if (!(incomingIsPlaceholder && existingIsReal)) friend.put("name", name);
+            } else if (!friend.has("name")) {
+                friend.put("name", chatId);
+            }
             friend.put("lang", langCode != null ? langCode : "en");
             if (nationality != null && !nationality.isEmpty()) friend.put("nationality", nationality.toLowerCase());
             friend.put("lastTime", System.currentTimeMillis());
+            friendsData.put(chatId, friend); saveFriends();
+        } catch (JSONException ignored) {}
+    }
+
+    // 昵称未加载完时的兜底名："好友 <chatId>" 或纯 chatId，均不算真实昵称。
+    private static boolean isPlaceholderFriendName(String chatId, String name) {
+        if (name == null) return true;
+        String n = name.trim();
+        if (n.isEmpty()) return true;
+        if (chatId != null && n.equals(chatId.trim())) return true;
+        return chatId != null && n.equals("好友 " + chatId.trim());
+    }
+
+    // 拿到真实昵称后回填：仅当现有名字为空/占位时才写，不覆盖已有的真名。
+    public static void backfillFriendName(String chatId, String realName) {
+        try {
+            if (chatId == null || chatId.isEmpty()) return;
+            if (realName == null || realName.trim().isEmpty()) return;
+            if (isPlaceholderFriendName(chatId, realName)) return;
+            if (!friendsData.has(chatId)) return;
+            JSONObject friend = friendsData.getJSONObject(chatId);
+            String current = friend.optString("name", "");
+            if (!isPlaceholderFriendName(chatId, current)) return;
+            friend.put("name", realName.trim());
             friendsData.put(chatId, friend); saveFriends();
         } catch (JSONException ignored) {}
     }

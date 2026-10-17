@@ -1914,8 +1914,15 @@ try {
             if (isBlockedFriendChatId(chatId)) return;
             JSONObject friend = new JSONObject();
             if (friendsData.has(chatId)) friend = friendsData.getJSONObject(chatId);
-            if (name != null && !name.isEmpty()) friend.put("name", name);
-            else if (!friend.has("name")) friend.put("name", chatId);
+            if (name != null && !name.isEmpty()) {
+                String existName = friend.optString("name", "");
+                boolean incomingPlaceholder = name.trim().equals(chatId.trim())
+                        || name.trim().equals("好友 " + chatId.trim());
+                boolean existReal = !existName.trim().isEmpty()
+                        && !existName.trim().equals(chatId.trim())
+                        && !existName.trim().equals("好友 " + chatId.trim());
+                if (!(incomingPlaceholder && existReal)) friend.put("name", name);
+            } else if (!friend.has("name")) friend.put("name", chatId);
             friend.put("lang", langCode != null ? langCode : "en");
             if (nationality != null && !nationality.isEmpty()) friend.put("nationality", nationality.toLowerCase());
             friend.put("lastTime", System.currentTimeMillis());
@@ -1929,6 +1936,23 @@ try {
             if (!friendsData.has(chatId)) return;
             JSONObject friend = friendsData.getJSONObject(chatId);
             friend.put("nationality", nationality.toLowerCase());
+            friendsData.put(chatId, friend); saveFriends();
+        } catch (JSONException ignored) {}
+    }
+
+    // 拿到真实昵称后回填：仅当现有名字为空或占位时才写，不覆盖已有的真名。
+    public static void backfillFriendName(String chatId, String realName) {
+        try {
+            if (chatId == null || chatId.isEmpty()) return;
+            if (realName == null || realName.trim().isEmpty()) return;
+            if (!friendsData.has(chatId)) return;
+            JSONObject friend = friendsData.getJSONObject(chatId);
+            String current = friend.optString("name", "").trim();
+            boolean currentIsPlaceholder = current.isEmpty()
+                    || current.equals(chatId.trim())
+                    || current.equals("好友 " + chatId.trim());
+            if (!currentIsPlaceholder) return;
+            friend.put("name", realName.trim());
             friendsData.put(chatId, friend); saveFriends();
         } catch (JSONException ignored) {}
     }

@@ -2176,6 +2176,7 @@ if (!AITranslator.canReceiveAny()) return;
                         resetSelectedReply();
 
                         final Object vm = p.thisObject;
+                        final String chatIdForUser = currentChatId;
 new Thread(() -> {
     try {
         Field f;
@@ -2188,7 +2189,7 @@ new Thread(() -> {
         for (int i = 0; i < 6; i++) {
             Object cu = f.get(vm);
             if (cu != null) {
-                updateFromChatUser(cu);
+                updateFromChatUser(cu, chatIdForUser);
                 return;
             }
             Thread.sleep(500);
@@ -2248,7 +2249,7 @@ new Thread(() -> {
             if (vm != null) {
                 Object cu = XposedHelpers.callMethod(vm, "getChatUser");
                 if (cu != null) {
-                    updateFromChatUser(cu);
+                    updateFromChatUser(cu, newChatId);
                     return;
                 }
             }
@@ -2824,6 +2825,12 @@ private static Object buildVisitItem6090(int uid, long ts) {
 
 
     private static void updateFromChatUser(Object chatUser) {
+        updateFromChatUser(chatUser, currentChatId);
+    }
+
+    // ownerChatId：这个 chatUser 所属的会话。不能用全局 currentChatId 代替——
+    // H3 钩子未注册时全局值不会随切会话更新，会把 A 的昵称回填到 B 的记录上。
+    private static void updateFromChatUser(Object chatUser, String ownerChatId) {
     try {
         int nl = (Integer) callObjMethod(chatUser, "getNativeLang", "T");
         String nat = (String) callObjMethod(chatUser, "getNationality", "S");
@@ -2838,7 +2845,7 @@ private static Object buildVisitItem6090(int uid, long ts) {
 
         // 昵称加载完成后，把此前存成「好友 <chatId>」的名字补回来
         try {
-            String cid = currentChatId;
+            String cid = ownerChatId;
             if (!latestPartnerName.isEmpty() && cid != null && !cid.isEmpty()
                     && !latestPartnerName.trim().equals(cid.trim())
                     && !latestPartnerName.trim().equals("好友 " + cid.trim())) {

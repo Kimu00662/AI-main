@@ -850,6 +850,59 @@ if (selectedReplyValid
         });
     }
 
+    // 自己发出的外语文本（可能来自第三方网站复制，未经过本模块翻译）也要建好友。
+    private static void registerOutgoingFriend(String chatId, String text, Object msg) {
+        try {
+            if (chatId == null || chatId.trim().isEmpty()) return;
+            if (text == null || text.trim().isEmpty()) return;
+            String t = text.trim();
+            if (t.startsWith("[")) return;                 // 图片/语音等占位
+            if (AITranslator.isChineseOnly(t)) return;      // 中文不建
+            if (!containsLetter(t)) return;                 // 纯表情/符号不建
+            // 只处理刚发出的消息，避免加载历史/重渲染时把旧会话重新建回列表。
+            if (!isFreshlySent(msg)) return;
+
+            Object midObj = invokeQuiet(mGetMsgId, msg);
+            String friendChatId = resolveAuthoritativeChatId(
+                    (midObj != null) ? String.valueOf(midObj) : null, chatId);
+            if (friendChatId == null || friendChatId.trim().isEmpty()
+                    || "0".equals(friendChatId) || "null".equalsIgnoreCase(friendChatId)) return;
+
+            String name = resolveFriendNameFor(friendChatId);
+            if (name == null) name = "好友 " + friendChatId;
+            String manualLang = chatLangOverride.get(friendChatId);
+            String targetLang = (manualLang != null && !manualLang.isEmpty())
+                    ? manualLang
+                    : determineSmartTargetLang(nationalityFor(friendChatId), nativeLangFor(friendChatId), friendChatId);
+            AITranslator.registerFriend(friendChatId, name, targetLang, nationalityFor(friendChatId));
+            log("发送外语消息，创建HT遥控好友（直接发送）: chatId=" + friendChatId + " name=" + name);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean containsLetter(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); ) {
+            int cp = s.codePointAt(i);
+            i += Character.charCount(cp);
+            if (Character.isLetter(cp)) return true;
+        }
+        return false;
+    }
+
+    // 消息发送时间在最近 2 分钟内才算「刚发出」，历史消息不参与建好友。
+    private static boolean isFreshlySent(Object msg) {
+        try {
+            Object sto = invokeQuiet(mGetSendTime, msg);
+            long ts = (sto instanceof Long) ? (Long) sto : 0L;
+            if (ts > 0 && ts < 10000000000L) ts = ts * 1000L;
+            if (ts <= 0) return true; // 没有时间戳时按新消息处理
+            long diff = System.currentTimeMillis() - ts;
+            return diff >= -60000L && diff <= 120000L;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
     private static void resetSelectedReply() {
         pendingFriendRegister = false;
         pendingFriendChatId = null;
@@ -3083,6 +3136,11 @@ final String chatId = eid;
                             }
                         }
                     }
+                    else if (isHt6090Detected) {
+                        // 不是本模块翻译出来的（例如从第三方网站复制后直接发送）：
+                        // 只要是自己发出的外语文本，也要建立遥控好友。
+                        registerOutgoingFriend(chatId, text, msg);
+                    }
                 } else if (pendingFriendRegister && isMine) {
                     registerPendingFriend(chatId, text);
                 }
@@ -4675,6 +4733,11 @@ if (chatIdInvalid) return;
                         ? currentChatId
                         : chatId;
                 registerPendingFriend(registrationChatId, text);
+            }
+
+            // 发送路径直接建好友：不等翻译缓存命中，兼容第三方复制粘贴。
+            if (isHt6090Detected) {
+                registerOutgoingFriend(chatId, text, msg);
             }
 
             Object mio = invokeQuiet(mGetMsgId, msg);

@@ -890,6 +890,39 @@ String out = runRoot(
         }).start();
     }
 
+    // 只从 htai_friends.json 删除这一条好友记录，不碰聊天历史/翻译缓存。
+    // 用于清理历史上因会话串写产生的重复／假条目。
+    private void deleteFriendEntryOnly(ChatSession s) {
+        new Thread(() -> {
+            try {
+                String friendsPath = "/data/data/com.hellotalk/files/htai_friends.json";
+                String jsonStr = runRoot("cp " + friendsPath + " /data/local/tmp/htai_friends.json 2>/dev/null; cat /data/local/tmp/htai_friends.json");
+                if (jsonStr != null && !jsonStr.trim().isEmpty()) {
+                    JSONObject friends = new JSONObject(jsonStr);
+                    friends.remove(s.id);
+
+                    File tempFile = new File(getCacheDir(), "htai_temp_friends.json");
+                    BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
+                    w.write(friends.toString());
+                    w.close();
+
+                    runRoot("cp " + tempFile.getAbsolutePath() + " " + friendsPath);
+                    runRoot("chmod 666 " + friendsPath);
+                    runRoot("cp " + friendsPath + " /data/local/tmp/htai_store/htai_friends.json 2>/dev/null");
+                }
+                mainHandler.post(() -> {
+                    refreshDrawerList();
+                    Toast.makeText(MainActivity.this,
+                            "已删除 [" + s.name + "] 这条好友记录，聊天记录保留",
+                            Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> Toast.makeText(MainActivity.this,
+                        "删除失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
     private void refreshDrawerList() {
         new Thread(() -> {
             final List<ChatSession> htFriends = new ArrayList<>();
@@ -913,6 +946,11 @@ String out = runRoot(
         }).start();
     }
 
+    private String shortChatId(String id) {
+        if (id == null) return "?";
+        return id.length() <= 4 ? id : id.substring(id.length() - 4);
+    }
+
     private void renderDrawerList(List<ChatSession> htFriends) {
         while (drawerContent.getChildCount() > 1) drawerContent.removeViewAt(1);
 
@@ -924,12 +962,23 @@ String out = runRoot(
             hint.setPadding(10, 20, 0, 20);
             drawerContent.addView(hint);
         } else {
+            // 重名时显示 chatId 尾号，便于区分并手动删除错误的那条。
+            java.util.Map<String, Integer> nameCounts = new java.util.HashMap<>();
+            for (ChatSession s : htFriends) {
+                if (s.name == null || s.name.trim().isEmpty()) continue;
+                Integer c = nameCounts.get(s.name);
+                nameCounts.put(s.name, c == null ? 1 : c + 1);
+            }
             for (ChatSession s : htFriends) {
     // 过滤旧版本把 chatId 当名字存进去的纯数字条目
     if (s.name == null || s.name.trim().isEmpty() || s.name.equals(s.id)) continue;
 
+    String displayName = s.name;
+    Integer dup = nameCounts.get(s.name);
+    if (dup != null && dup > 1) displayName = s.name + "（…" + shortChatId(s.id) + "）";
+
     TextView tv = new TextView(this);
-    tv.setText("👤 " + s.name);
+    tv.setText("👤 " + displayName);
                 tv.setTextSize(16f);
                 tv.setPadding(20, 26, 20, 26);
                 tv.setTextColor(Color.parseColor("#333333"));
@@ -949,10 +998,12 @@ String out = runRoot(
                             .setTitle("清理 [" + s.name + "] 的底层记忆")
                             .setItems(new String[]{
                                     "🧹 仅清除记忆（翻译缓存保留）",
-                                    "🗑️ 连翻译缓存一起清除（彻底删除）"
+                                    "🗑️ 连翻译缓存一起清除（彻底删除）",
+                                    "❌ 只删除这条好友记录（保留聊天记录）"
                             }, (dialog, which) -> {
                                 if (which == 0) deleteHTChatRoot(s, false);
                                 else if (which == 1) deleteHTChatRoot(s, true);
+                                else if (which == 2) deleteFriendEntryOnly(s);
                             })
                             .setNegativeButton("取消", null)
                             .show();

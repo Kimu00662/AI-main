@@ -94,6 +94,9 @@ public class AITranslator {
 
     private static final File friendsFile = new File("/data/data/com.hellotalk/files/htai_friends.json");
     private static JSONObject friendsData = new JSONObject();
+    // friendsData 会被多个发送 hook 线程并发读写；所有改动与落盘必须串行化。
+    private static final Object friendsLock = new Object();
+    private static long friendsFileLastModified = 0L;
 
     // 官方推送/系统通知会话（非真人聊天），永不作为遥控好友。
     private static final Set<String> blockedFriendChatIds =
@@ -1886,6 +1889,12 @@ try {
     }
 
     public static void loadFriends() {
+        synchronized (friendsLock) {
+            loadFriendsLocked();
+        }
+    }
+
+    private static void loadFriendsLocked() {
         try {
             if (friendsFile.exists()) {
                 BufferedReader r = new BufferedReader(new FileReader(friendsFile));
@@ -1893,15 +1902,58 @@ try {
                 while ((line = r.readLine()) != null) sb.append(line);
                 r.close(); friendsData = new JSONObject(sb.toString());
             }
+            friendsFileLastModified = friendsFile.exists() ? friendsFile.lastModified() : 0L;
+        } catch (Exception ignored) {}
+    }
+
+    // 遥控器界面（另一个进程）可能刚改过好友文件；落盘前发现文件变新就重新加载，
+    // 避免用本进程的旧快照把刚删掉的条目写回来。
+    private static void reloadFriendsIfChangedLocked() {
+        try {
+            long m = friendsFile.exists() ? friendsFile.lastModified() : 0L;
+            if (m > friendsFileLastModified) loadFriendsLocked();
         } catch (Exception ignored) {}
     }
 
     public static void saveFriends() {
+        synchronized (friendsLock) {
+            saveFriendsLocked();
+        }
+    }
+
+    private static void saveFriendsLocked() {
         try {
             friendsFile.getParentFile().mkdirs();
             BufferedWriter w = new BufferedWriter(new FileWriter(friendsFile));
             w.write(friendsData.toString()); w.close();
+            friendsFileLastModified = friendsFile.lastModified();
         } catch (Exception ignored) {}
+    }
+
+    /** 「好友 123456」/纯 chatId 这类占位名不代表真实昵称。 */
+    public static boolean isPlaceholderFriendName(String name, String chatId) {
+        if (name == null) return true;
+        String n = name.trim();
+        if (n.isEmpty()) return true;
+        if (chatId != null && n.equals(chatId.trim())) return true;
+        if (n.matches("^好友\\s*\\d+$")) return true;
+        if (n.matches("^用户\\s*\\d+$")) return true;
+        return false;
+    }
+
+    private static String findFriendChatIdByNameLocked(String name) {
+        try {
+            JSONArray ids = friendsData.names();
+            if (ids == null) return null;
+            for (int i = 0; i < ids.length(); i++) {
+                String id = ids.getString(i);
+                JSONObject info = friendsData.optJSONObject(id);
+                if (info == null) continue;
+                String n = info.optString("name", "");
+                if (n != null && n.trim().equals(name)) return id;
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     public static void registerFriend(String chatId, String name, String langCode) {
@@ -1910,17 +1962,65 @@ try {
 
     public static void registerFriend(String chatId, String name, String langCode, String nationality) {
         try {
-            if (chatId == null || chatId.isEmpty()) return;
-            if (isBlockedFriendChatId(chatId)) return;
-            JSONObject friend = new JSONObject();
-            if (friendsData.has(chatId)) friend = friendsData.getJSONObject(chatId);
-            if (name != null && !name.isEmpty()) friend.put("name", name);
-            else if (!friend.has("name")) friend.put("name", chatId);
-            friend.put("lang", langCode != null ? langCode : "en");
-            if (nationality != null && !nationality.isEmpty()) friend.put("nationality", nationality.toLowerCase());
-            friend.put("lastTime", System.currentTimeMillis());
-            friendsData.put(chatId, friend); saveFriends();
-        } catch (JSONException ignored) {}
+            if (chatId == null || chatId.trim().isEmpty()) return;
+            final String cid = chatId.trim();
+            if (isBlockedFriendChatId(cid)) return;
+            final String incoming = name == null ? "" : name.trim();
+            synchronized (friendsLock) {
+                reloadFriendsIfChangedLocked();
+                JSONObject friend = friendsData.optJSONObject(cid);
+                if (friend == null) friend = new JSONObject();
+                String existing = friend.optString("name", "");
+                boolean incomingReal = !isPlaceholderFriendName(incoming, cid);
+                boolean existingReal = !isPlaceholderFriendName(existing, cid);
+
+                if (incomingReal) {
+                    String owner = findFriendChatIdByNameLocked(incoming);
+                    // 这个名字已经属于另一个好友：绝不写到本 chatId 上，避免列表出现两个同名。
+                    if (owner == null || owner.equals(cid)) {
+                        friend.put("name", incoming);
+                    } else {
+                        Log.w("HT_AI", "拒绝跨好友写昵称: chatId=" + cid + " name=" + incoming + " owner=" + owner);
+                    }
+                } else if (!existingReal) {
+                    // 只有本来就没有真实昵称时才写占位名；真实昵称永远不会被占位名覆盖。
+                    friend.put("name", "好友 " + cid);
+                }
+                friend.put("lang", langCode != null ? langCode : "en");
+                if (nationality != null && !nationality.isEmpty()) friend.put("nationality", nationality.toLowerCase());
+                friend.put("lastTime", System.currentTimeMillis());
+                friendsData.put(cid, friend);
+                saveFriendsLocked();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * 只把「占位名/空名」回填成真实昵称；已有真实昵称绝不覆盖。
+     * 这样即使调用方拿到的是过期昵称，也不会把好友 A 的名字写到好友 B 上。
+     */
+    public static boolean backfillFriendName(String chatId, String name) {
+        try {
+            if (chatId == null || chatId.trim().isEmpty()) return false;
+            final String cid = chatId.trim();
+            final String incoming = name == null ? "" : name.trim();
+            if (isPlaceholderFriendName(incoming, cid)) return false;
+            synchronized (friendsLock) {
+                reloadFriendsIfChangedLocked();
+                JSONObject friend = friendsData.optJSONObject(cid);
+                if (friend == null) return false;
+                String existing = friend.optString("name", "");
+                if (!isPlaceholderFriendName(existing, cid)) return false;
+                String owner = findFriendChatIdByNameLocked(incoming);
+                if (owner != null && !owner.equals(cid)) return false;
+                friend.put("name", incoming);
+                friendsData.put(cid, friend);
+                saveFriendsLocked();
+                return true;
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     public static void updateFriendNationality(String chatId, String nationality) {

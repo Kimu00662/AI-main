@@ -64,6 +64,12 @@ private static volatile Object currentChatDetailFragment = null;
     private static volatile int latestNativeLang = 1;
     private static volatile String latestPartnerName = "";
 
+    // chatId -> 该会话自己的昵称/国籍/母语。
+    // 昵称必须跟 chatId 绑定，不能再拿全局 currentPartnerName 写别人的记录。
+    private static final Map<String, String> chatNicknames = new ConcurrentHashMap<>();
+    private static final Map<String, String> chatNationalities = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> chatNativeLangs = new ConcurrentHashMap<>();
+
     private static volatile boolean isTranslatingAPI = false;
 
     private static final Map<String, CompletableFuture<String>> receiveTranslations =
@@ -820,18 +826,15 @@ if (selectedReplyValid
             AITranslator.rememberDraftIfAbsent(text, editedChinese);
         }
 
-        String friendName = currentPartnerName;
-        if (friendName == null || friendName.trim().isEmpty()) friendName = latestPartnerName;
-        if (friendName == null || friendName.trim().isEmpty() || friendName.equals(chatId)) {
-            friendName = "好友 " + chatId;
-        }
+        String friendName = resolveFriendNameFor(chatId);
+        if (friendName == null) friendName = "好友 " + chatId;
 
         String manualLang = chatLangOverride.get(chatId);
         String targetLang = (manualLang != null && !manualLang.isEmpty())
                 ? manualLang
-                : determineSmartTargetLang(latestNationality, latestNativeLang, chatId);
+                : determineSmartTargetLang(nationalityFor(chatId), nativeLangFor(chatId), chatId);
 
-        AITranslator.registerFriend(chatId, friendName, targetLang, latestNationality);
+        AITranslator.registerFriend(chatId, friendName, targetLang, nationalityFor(chatId));
         log("已确认发送选中的翻译版本，创建HT遥控好友: chatId=" + chatId
                 + " name=" + friendName + " lang=" + targetLang);
 
@@ -2176,6 +2179,7 @@ if (!AITranslator.canReceiveAny()) return;
                         resetSelectedReply();
 
                         final Object vm = p.thisObject;
+final String ownerChatId = String.valueOf(p.args[0]);
 new Thread(() -> {
     try {
         Field f;
@@ -2188,7 +2192,7 @@ new Thread(() -> {
         for (int i = 0; i < 6; i++) {
             Object cu = f.get(vm);
             if (cu != null) {
-                updateFromChatUser(cu);
+                updateFromChatUser(cu, ownerChatId);
                 return;
             }
             Thread.sleep(500);
@@ -2248,7 +2252,7 @@ new Thread(() -> {
             if (vm != null) {
                 Object cu = XposedHelpers.callMethod(vm, "getChatUser");
                 if (cu != null) {
-                    updateFromChatUser(cu);
+                    updateFromChatUser(cu, newChatId);
                     return;
                 }
             }
@@ -2823,23 +2827,64 @@ private static Object buildVisitItem6090(int uid, long ts) {
 }
 
 
-    private static void updateFromChatUser(Object chatUser) {
+    private static void updateFromChatUser(Object chatUser, String ownerChatId) {
     try {
         int nl = (Integer) callObjMethod(chatUser, "getNativeLang", "T");
         String nat = (String) callObjMethod(chatUser, "getNationality", "S");
         String nn = (String) callObjMethod(chatUser, "getNickName", "R");
         String un = (String) callObjMethod(chatUser, "getUserName", "l0");
 
-        latestNativeLang = nl;
-        latestNationality = nat != null ? nat : "";
-        latestPartnerName = (nn != null && !nn.isEmpty()) ? nn : (un != null ? un : "");
+        String name = (nn != null && !nn.isEmpty()) ? nn : (un != null ? un : "");
+        String cid = ownerChatId == null ? "" : ownerChatId.trim();
+        boolean ownerIsCurrent = !cid.isEmpty() && cid.equals(currentChatId);
 
-        if (!latestPartnerName.isEmpty()) currentPartnerName = latestPartnerName;
+        if (!cid.isEmpty()) {
+            if (name != null && !name.trim().isEmpty()) {
+                // 昵称按 chatId 保存：之后无论哪个线程建好友，都只能拿到该会话自己的名字。
+                chatNicknames.put(cid, name.trim());
+                AITranslator.backfillFriendName(cid, name);
+            }
+            if (nat != null && !nat.isEmpty()) chatNationalities.put(cid, nat);
+            chatNativeLangs.put(cid, nl);
+        }
 
-        
-        log("国籍原文: [" + latestNationality + "] 母语码: " + nl);
+        if (ownerIsCurrent) {
+            latestNativeLang = nl;
+            latestNationality = nat != null ? nat : "";
+            latestPartnerName = name;
+            if (name != null && !name.isEmpty()) currentPartnerName = name;
+        } else {
+            // 旧会话的异步结果：只写入它自己的 chatId 绑定，不污染当前会话的全局状态。
+            log("忽略过期 ChatUser: owner=" + cid + " current=" + currentChatId + " name=" + name);
+        }
+
+        log("国籍原文: [" + nat + "] 母语码: " + nl + " chatId=" + cid + " name=" + name);
     } catch (Throwable ignored) {}
 }
+
+    // 只返回属于该 chatId 的真实昵称；没有就返回 null，绝不拿别的会话的名字兜底。
+    private static String resolveFriendNameFor(String chatId) {
+        if (chatId == null) return null;
+        String cid = chatId.trim();
+        String bound = chatNicknames.get(cid);
+        if (bound != null && !bound.trim().isEmpty()) return bound.trim();
+        if (cid.equals(currentChatId)) {
+            String cur = currentPartnerName;
+            if (cur == null || cur.trim().isEmpty()) cur = latestPartnerName;
+            if (cur != null && !cur.trim().isEmpty() && !cur.equals(cid)) return cur.trim();
+        }
+        return null;
+    }
+
+    private static String nationalityFor(String chatId) {
+        String n = chatId == null ? null : chatNationalities.get(chatId);
+        return (n != null && !n.isEmpty()) ? n : latestNationality;
+    }
+
+    private static int nativeLangFor(String chatId) {
+        Integer v = chatId == null ? null : chatNativeLangs.get(chatId);
+        return v != null ? v : latestNativeLang;
+    }
 
 private static Object callObjMethod(Object obj, String oldName, String newName) {
     try { return XposedHelpers.callMethod(obj, oldName); }
@@ -3014,19 +3059,15 @@ final String chatId = eid;
                                 log("跳过建好友：消息归属 chatId=" + friendChatId
                                         + " 与选版会话 chatId=" + pendingFriendChatId + " 不一致");
                             } else {
-                                String registrationName = currentPartnerName;
-                                if (registrationName == null || registrationName.trim().isEmpty()) {
-                                    registrationName = latestPartnerName;
-                                }
-                                if (registrationName == null || registrationName.trim().isEmpty()
-                                        || registrationName.equals(friendChatId)) {
+                                String registrationName = resolveFriendNameFor(friendChatId);
+                                if (registrationName == null) {
                                     registrationName = "好友 " + friendChatId;
                                 }
                                 String manualLang = chatLangOverride.get(friendChatId);
                                 String targetLang = (manualLang != null && !manualLang.isEmpty())
                                         ? manualLang
-                                        : determineSmartTargetLang(latestNationality, latestNativeLang, friendChatId);
-                                AITranslator.registerFriend(friendChatId, registrationName, targetLang, latestNationality);
+                                        : determineSmartTargetLang(nationalityFor(friendChatId), nativeLangFor(friendChatId), friendChatId);
+                                AITranslator.registerFriend(friendChatId, registrationName, targetLang, nationalityFor(friendChatId));
                                 log("新版通过 mySentDrafts 确认发送结果，创建HT遥控好友: chatId="
                                         + friendChatId + " name=" + registrationName);
                                 pendingFriendRegister = false;

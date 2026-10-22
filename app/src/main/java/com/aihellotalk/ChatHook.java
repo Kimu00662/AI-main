@@ -3096,7 +3096,8 @@ final String chatId = eid;
                         }
                     }
                     if (draftChinese != null
-                            && !draftChinese.trim().isEmpty()) {
+                            && !draftChinese.trim().isEmpty()
+                            && isFreshlySent(msg)) {
                         // 用消息自身的权威归属（mid->chatId）建好友，而不是全局 currentChatId。
                         // 切会话瞬间 currentChatId 会漂移，导致把发给 A 的消息登记到 B 名下。
                         Object mioFriend = invokeQuiet(mGetMsgId, msg);

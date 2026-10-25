@@ -3104,18 +3104,48 @@ private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObjec
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .post(RequestBody.create(body.toString(), JSON_TYPE))
             .build();
+    long t0 = System.currentTimeMillis();
     try (Response resp = useClient.newCall(req).execute()) {
+        long tHeaders = System.currentTimeMillis() - t0;
         String responseBody = resp.body() != null ? resp.body().string() : "";
+        long tBody = System.currentTimeMillis() - t0;
         if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + responseBody);
         try {
             JSONObject json = new JSONObject(responseBody);
             JSONObject choice = json.getJSONArray("choices").getJSONObject(0);
             String content = choice.getJSONObject("message").optString("content", "").trim();
             if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
+            lastDiag = buildDiag(ep, tHeaders, tBody, json, content);
             return content;
         } catch (IOException e) { throw e; }
         catch (Exception e) { throw new IOException("JSON解析失败：" + responseBody); }
     }
+}
+
+private static volatile String lastDiag = "";
+
+public static String getLastDiag() { return lastDiag; }
+
+private static String buildDiag(ApiEndpoint ep, long tHeaders, long tBody, JSONObject json, String content) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("端点槽位: ").append(ep.slot).append("\n");
+    sb.append("模型: ").append(ep.model).append("\n");
+    sb.append("思考参数: ").append(ep.reasoningEffort).append("\n");
+    sb.append("首包(响应头): ").append(tHeaders).append("ms\n");
+    sb.append("读完全文: ").append(tBody).append("ms\n");
+    sb.append("输出字符数: ").append(content.length()).append("\n");
+    JSONObject usage = json.optJSONObject("usage");
+    if (usage != null) {
+        sb.append("prompt_tokens: ").append(usage.optInt("prompt_tokens", -1)).append("\n");
+        sb.append("completion_tokens: ").append(usage.optInt("completion_tokens", -1)).append("\n");
+        JSONObject details = usage.optJSONObject("completion_tokens_details");
+        if (details != null) {
+            sb.append("reasoning_tokens: ").append(details.optInt("reasoning_tokens", -1)).append("\n");
+        }
+    } else {
+        sb.append("usage: 未返回\n");
+    }
+    return sb.toString();
 }
 
 private static String normalizeReasoningEffort(String effort) {

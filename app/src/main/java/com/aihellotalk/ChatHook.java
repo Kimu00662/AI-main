@@ -1366,33 +1366,11 @@ private static String askAiQuestionHt6090(String text, String chatId) throws Exc
 private static String translateForPickerHt6090(
         String text, String langCode, String chatId, boolean retry) throws Exception {
     logHt6090RequestSummary();
-    long t0 = System.currentTimeMillis();
     try {
-        String r = AITranslator.translateForPicker(text, langCode, chatId, retry);
-        long elapsed = System.currentTimeMillis() - t0;
-        log("===== 点译耗时诊断 =====");
-        log("总耗时: " + elapsed + "ms");
-        log("语言: " + langCode + " 重试: " + retry);
-        String diag = AITranslator.getLastDiag();
-        if (diag != null && !diag.isEmpty()) {
-            for (String line : diag.split("\n")) log("  " + line);
-        } else {
-            log("  底层明细: 未采集到");
-        }
-        log("输出长度: " + (r == null ? 0 : r.length()) + " 字符");
-        log("=====================");
-        return r;
+        return AITranslator.translateForPicker(text, langCode, chatId, retry);
     } catch (Exception e) {
-        long elapsed = System.currentTimeMillis() - t0;
-        log("===== 点译耗时诊断（失败） =====");
-        log("总耗时: " + elapsed + "ms");
-        String diag = AITranslator.getLastDiag();
-        if (diag != null && !diag.isEmpty()) {
-            for (String line : diag.split("\n")) log("  " + line);
-        }
         log("6.0.90 请求失败: " + (e.getMessage() != null
                 ? e.getMessage() : e.getClass().getSimpleName()));
-        log("=====================");
         throw e;
     }
 }

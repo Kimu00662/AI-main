@@ -1611,6 +1611,7 @@ private void testTranslate() {
 }
 
     private void diagPickerLatency() {
+        AITranslator.loadFriends();
         org.json.JSONArray friends = AITranslator.getAllFriends();
         final List<String> ids = new ArrayList<>();
         final List<String> labels = new ArrayList<>();
@@ -1653,6 +1654,7 @@ private void testTranslate() {
     }
 
     private void runDiagPicker(String chatId) {
+        AITranslator.loadFriends();
         String lang = AITranslator.getFriendLang(chatId);
         if (lang == null || lang.isEmpty()) lang = "en";
         final String useLang = lang;

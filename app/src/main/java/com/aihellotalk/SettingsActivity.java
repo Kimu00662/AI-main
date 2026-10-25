@@ -657,10 +657,6 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         btnTest.setOnClickListener(v -> testTranslate());
         ll.addView(btnTest);
 
-        Button btnDiagPicker = btn("诊断：实测点译耗时（发真实点译请求）");
-        btnDiagPicker.setOnClickListener(v -> diagPickerLatency());
-        ll.addView(btnDiagPicker);
-
         sv.addView(ll);
         setContentView(sv);
     }
@@ -1609,92 +1605,6 @@ private void testTranslate() {
         });
     }).start();
 }
-
-    private void diagPickerLatency() {
-        AITranslator.loadFriends();
-        org.json.JSONArray friends = AITranslator.getAllFriends();
-        final List<String> ids = new ArrayList<>();
-        final List<String> labels = new ArrayList<>();
-        for (int i = 0; i < friends.length(); i++) {
-            org.json.JSONObject f = friends.optJSONObject(i);
-            if (f == null) continue;
-            String id = f.optString("id", "");
-            if (id.isEmpty()) continue;
-            ids.add(id);
-            labels.add(f.optString("name", id) + "  (" + f.optString("lang", "en")
-                    + ", " + f.optInt("count", 0) + "条历史)");
-        }
-
-        AlertDialog.Builder b = new AlertDialog.Builder(this);
-        if (ids.isEmpty()) {
-            b.setTitle("未读到好友数据");
-            b.setMessage("诊断信息：\n" + AITranslator.describeFriendSources()
-                    + "\n可以手动输入 chatId 测试。chatId 可从 LSPosed 日志搜「历史写入判定」拿到。");
-        } else {
-            b.setTitle("选择要测试的好友");
-            b.setItems(labels.toArray(new String[0]), (d, which) -> runDiagPicker(ids.get(which)));
-        }
-        b.setNeutralButton("手动输入 chatId", (d, w) -> diagPickerManual());
-        b.setNegativeButton("取消", null);
-        b.show();
-    }
-
-    private void diagPickerManual() {
-        AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("手动输入 chatId");
-        final EditText input = new EditText(this);
-        input.setHint("chatId");
-        b.setView(input);
-        b.setPositiveButton("开始", (d, w) -> {
-            String cid = input.getText().toString().trim();
-            if (cid.isEmpty()) { toast("chatId 不能为空"); return; }
-            runDiagPicker(cid);
-        });
-        b.setNegativeButton("取消", null);
-        b.show();
-    }
-
-    private void runDiagPicker(String chatId) {
-        AITranslator.loadFriends();
-        String lang = AITranslator.getFriendLang(chatId);
-        if (lang == null || lang.isEmpty()) lang = "en";
-        final String useLang = lang;
-        Toast.makeText(this, "正在发送真实点译请求，请稍候…", Toast.LENGTH_LONG).show();
-
-        new Thread(() -> {
-            long t0 = System.currentTimeMillis();
-            String error = null;
-            String result = null;
-            try {
-                result = AITranslator.translateForPicker("你好，今天过得怎么样", useLang, chatId, false);
-            } catch (Exception e) {
-                error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            }
-            long elapsed = System.currentTimeMillis() - t0;
-            String diag = AITranslator.getLastDiag();
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("语言: ").append(useLang).append("\n");
-            sb.append("总耗时(含排队): ").append(elapsed).append("ms\n\n");
-            if (diag != null && !diag.isEmpty()) {
-                sb.append("【底层请求明细】\n").append(diag);
-            } else {
-                sb.append("【底层请求明细】未采集到（可能未发出请求）\n");
-            }
-            if (error != null) {
-                sb.append("\n【错误】\n").append(error);
-            } else if (result != null) {
-                sb.append("\n【输出前 300 字】\n").append(
-                        result.length() > 300 ? result.substring(0, 300) + "…" : result);
-            }
-            final String msg = sb.toString();
-            runOnUiThread(() -> new AlertDialog.Builder(SettingsActivity.this)
-                    .setTitle("点译耗时诊断")
-                    .setMessage(msg)
-                    .setPositiveButton("关闭", null)
-                    .show());
-        }).start();
-    }
 
     // 独立测试通道方法，绕开调度限制
         // 独立测试通道方法，绕开调度限制并修复 /v1/v1/ 重叠BUG

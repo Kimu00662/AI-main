@@ -1611,9 +1611,35 @@ private void testTranslate() {
 }
 
     private void diagPickerLatency() {
+        org.json.JSONArray friends = AITranslator.getAllFriends();
+        final List<String> ids = new ArrayList<>();
+        final List<String> labels = new ArrayList<>();
+        for (int i = 0; i < friends.length(); i++) {
+            org.json.JSONObject f = friends.optJSONObject(i);
+            if (f == null) continue;
+            String id = f.optString("id", "");
+            if (id.isEmpty()) continue;
+            ids.add(id);
+            labels.add(f.optString("name", id) + "  (" + f.optString("lang", "en")
+                    + ", " + f.optInt("count", 0) + "条历史)");
+        }
+
+        if (ids.isEmpty()) {
+            toast("没有可用的好友记录。请先在 HelloTalk 里点译一次，让模块登记好友。");
+            return;
+        }
+
         AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("诊断点译耗时");
-        b.setMessage("将发送一次真实的点译请求（含本地指令与历史）。\n请输入要测试的好友 chatId（可从点译日志复制）：");
+        b.setTitle("选择要测试的好友");
+        b.setItems(labels.toArray(new String[0]), (d, which) -> runDiagPicker(ids.get(which)));
+        b.setNeutralButton("手动输入 chatId", (d, w) -> diagPickerManual());
+        b.setNegativeButton("取消", null);
+        b.show();
+    }
+
+    private void diagPickerManual() {
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("手动输入 chatId");
         final EditText input = new EditText(this);
         input.setHint("chatId");
         b.setView(input);

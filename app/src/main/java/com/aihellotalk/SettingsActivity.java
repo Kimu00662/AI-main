@@ -1625,14 +1625,15 @@ private void testTranslate() {
                     + ", " + f.optInt("count", 0) + "条历史)");
         }
 
-        if (ids.isEmpty()) {
-            toast("没有可用的好友记录。请先在 HelloTalk 里点译一次，让模块登记好友。");
-            return;
-        }
-
         AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("选择要测试的好友");
-        b.setItems(labels.toArray(new String[0]), (d, which) -> runDiagPicker(ids.get(which)));
+        if (ids.isEmpty()) {
+            b.setTitle("未读到好友数据");
+            b.setMessage("诊断信息：\n" + AITranslator.describeFriendSources()
+                    + "\n可以手动输入 chatId 测试。chatId 可从 LSPosed 日志搜「历史写入判定」拿到。");
+        } else {
+            b.setTitle("选择要测试的好友");
+            b.setItems(labels.toArray(new String[0]), (d, which) -> runDiagPicker(ids.get(which)));
+        }
         b.setNeutralButton("手动输入 chatId", (d, w) -> diagPickerManual());
         b.setNegativeButton("取消", null);
         b.show();

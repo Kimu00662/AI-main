@@ -1896,14 +1896,31 @@ try {
 
     private static void loadFriendsLocked() {
         try {
-            if (friendsFile.exists()) {
-                BufferedReader r = new BufferedReader(new FileReader(friendsFile));
+            File src = friendsFile.exists() ? friendsFile : backupFriendsFile();
+            if (src != null && src.exists()) {
+                BufferedReader r = new BufferedReader(new FileReader(src));
                 StringBuilder sb = new StringBuilder(); String line;
                 while ((line = r.readLine()) != null) sb.append(line);
                 r.close(); friendsData = new JSONObject(sb.toString());
             }
             friendsFileLastModified = friendsFile.exists() ? friendsFile.lastModified() : 0L;
         } catch (Exception ignored) {}
+    }
+
+    private static File backupFriendsFile() {
+        File f = new File(STORE_DIR + "/htai_friends.json");
+        return f.exists() ? f : null;
+    }
+
+    public static String describeFriendSources() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("主文件 ").append(friendsFile.getAbsolutePath()).append(": ");
+        sb.append(friendsFile.exists() ? (friendsFile.length() + " 字节，可读=" + friendsFile.canRead()) : "不存在");
+        sb.append("\n备份文件 ").append(STORE_DIR).append("/htai_friends.json: ");
+        File bk = new File(STORE_DIR + "/htai_friends.json");
+        sb.append(bk.exists() ? (bk.length() + " 字节，可读=" + bk.canRead()) : "不存在");
+        sb.append("\n已加载好友数: ").append(friendsData.length());
+        return sb.toString();
     }
 
     // 遥控器界面（另一个进程）可能刚改过好友文件；落盘前发现文件变新就重新加载，

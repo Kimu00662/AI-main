@@ -2600,38 +2600,22 @@ private static boolean isDirtyHistoryContent(String content) {
             String spanishDirective = "";
             if ("es".equals(langCode)) spanishDirective = getSpanishRegionDirective(null, 0, chatId);
 
-                        String formatProtocol = "\n\n【最高优先级输出格式控制】\n"
-                    + "禁止输出 JSON 或 Markdown 代码块。\n"
-                    + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 3 个翻译选项。\n"
-                    + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文意译 | 语气标签。\n"
-                    + "第二栏「中文意译」仅供用户核对：用简体中文写出这行外语实际的意思，不得留空；不得因迁就这一栏而损害外语版本的母语感。\n"
-                    + "👉 只能作选项行开头，绝不能出现在分析中。\n";
+            String formatProtocol = "\n\n【输出格式·代码按此解析】\n"
+                    + "先写分析，之后每个选项单独一行，以 👉 开头，三栏用 | 分隔：👉 外语 | 中文意译 | 语气标签\n"
+                    + "禁止 JSON、Markdown、代码块。👉 只能出现在选项行开头。\n";
 
-            String targetRule = "\n【回复目标识别规则，必须遵守】\n"
-                    + "1. 如果用户输入中包含【我要回复的对方原话】，说明用户是在回复对方这条消息。"
-                    + "你必须在分析中第一句写明：\"你正在回复对方这句话：<原话>\"，然后再写其他分析。\n"
-                    + "2. 如果用户输入中包含【我对我自己之前这条外语消息的补充】，说明用户是在补充自己这条历史消息。"
-                    + "你必须在分析中第一句写明：\"你是在补充自己这条历史消息：<原话>\"，然后再写其他分析。\n"
-                    + "3. 如果用户输入中既没有【我要回复的对方原话】，也没有【我对我自己之前这条外语消息的补充】，"
-                    + "说明用户没有显式选择回复目标。你必须根据下面的对话历史，推断用户最可能是在回复对方哪一句话，"
-                    + "还是在补充自己之前哪一条外语消息。然后在分析中第一句写明："
-                    + "\"我推断你是在回复对方这句话：<推断原话>\" 或 \"我推断你是在补充自己这条历史消息：<推断原话>\"。"
-                    + "如果无法判断，就写\"我推断你是接着最近对话继续回复\"。\n"
-                    + "4. 上半部分分析不得为空或敷衍，须完整写完本地 prompt 的要求（除非用户明确要求简短）；写完立即进入 3 个选项，不要扩写。\n"
-                    + "5. 【死命令：禁止意译国籍、禁止代入人设】你是绝对中立的翻译工具，没有个人身份；国家/文化名词必须字面直译，禁止把“中国”“日本”等换成“国产”“我国”“这里”“你们国家”等主观代词。\n"
-+ "6. 【死命令：说话人识别】“我：”行是用户自己说的，“对方：”行才是对方说的。只有存在“对方：”行时才能写“回复对方这句话”，引用的原话必须来自“对方：”行，绝不能拿“我：”行当对方原话；若最后一条是“我：”，优先判为“补充自己的历史消息”。\n"
-+ "7. 【死命令：<translate> 不是对方原话】<translate> 内是本次要翻译的内容，绝非对方说过的话。写“回复对方这句话”时原话必须取自历史“对方：”行，禁止复制 <translate> 内容；找不到合适原话就写“我推断你是接着最近对话继续回复”或“补充自己的历史消息”，不要编造。\n";
+            String targetRule = "\n【输入标记说明】\n"
+                    + "用户输入里可能出现【我要回复的对方原话】或【我对我自己之前这条外语消息的补充】，那是我指定的回复目标，据此判定，不要当成待翻译内容。\n"
++ "【死命令：说话人识别】“我：”行是用户自己说的，“对方：”行才是对方说的。只有存在“对方：”行时才能写“回复对方这句话”，引用的原话必须来自“对方：”行，绝不能拿“我：”行当对方原话；若最后一条是“我：”，优先判为“补充自己的历史消息”。\n"
++ "【死命令：<translate> 不是对方原话】<translate> 内是本次要翻译的内容，绝非对方说过的话。写“回复对方这句话”时原话必须取自历史“对方：”行，禁止复制 <translate> 内容。\n";
 
-            String contextRule = "\n【上下文使用规则】\n"
-                    + "历史记录用于理解对话语义和对方背景。\n"
-                    + "「对方：」行是对方的真实外语原话，可参考其语言形式（句子长短、随意度、口语化程度）让译文与之协调；但严禁模仿「我：」行的措辞（那是我自己发过的译文，可能带翻译腔），也严禁复制对方特有的口头禅或专属用词。\n"
-                    + "不得继承历史中曾出现的极端、露骨、粗俗或一次性语气。\n"
-                    + "历史中标记为[一次性上下文]的内容只表示它发生过，不代表长期风格。\n"
-                    + "本次翻译的语气、态度与情绪强度只由 <translate> 内的当前原文决定，不得因对方语气温和而弱化，也不得因对方激进就加码。\n";
+            String contextRule = "\n【历史记录说明】\n"
+                    + "「对方：」行是对方的真实外语原话；「我：」行是我之前发出去的外语消息，不要模仿其措辞。\n"
+                    + "[一次性上下文] 只表示它发生过，不代表长期风格。历史里出现过的极端、露骨、粗俗表达只是当时那一句，不要延续到本次译文。\n";
 
             String friendName = getFriendName(chatId);
             String nameHint = (friendName != null && !friendName.isEmpty() && !friendName.equals(chatId)) 
-                ? "\n\n【绝密警告：当前聊天对象是 " + friendName + "。在【上半部分分析】中可以自然地使用该昵称（如："+friendName+"）替代“对方”。但是！在生成【下方3个翻译选项】时，严禁把对方名字带入括号的潜台词里！潜台词必须短小精悍，绝不能在潜台词里生硬地提对方名字，也严禁替换原文人名！】" 
+                ? "\n\n【当前聊天对象是 " + friendName + "。分析里可以用这个昵称称呼对方，但翻译选项里不出现昵称，也不替换原文人名。】" 
                 : "";
 
             String retryDirective = "";
@@ -2718,164 +2702,6 @@ scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
         }
     }
 
-// ===== 新版 HelloTalk：实时聊天上下文专用翻译 =====
-//
-// 只由新版 ChatHook 在成功读取当前聊天页面真实消息后调用。
-// 不读取 loadHistory()，避免错误 chatId 污染普通翻译和回复分析。
-// 旧版继续使用原来的 translateForPicker()。
-public static String translateForPickerLive(
-        String text,
-        String langCode,
-        String chatId,
-        boolean retry,
-        String liveContext) throws IOException {
-
-    maybeRecheckMode();
-
-    try {
-        JSONArray messages = new JSONArray();
-
-        String sysPrompt;
-
-        switch (langCode) {
-            case "ru": sysPrompt = promptRU; break;
-            case "uk": sysPrompt = promptUK; break;
-            case "ko": sysPrompt = promptKO; break;
-            case "es": sysPrompt = promptES; break;
-            case "ar": sysPrompt = promptAR; break;
-            case "pt": sysPrompt = promptPT; break;
-            case "fr": sysPrompt = promptFR; break;
-            case "de": sysPrompt = promptDE; break;
-            case "it": sysPrompt = promptIT; break;
-            case "tr": sysPrompt = promptTR; break;
-            case "nl": sysPrompt = promptNL; break;
-            case "pl": sysPrompt = promptPL; break;
-            case "kk": sysPrompt = promptKK; break;
-            case "cs": sysPrompt = promptCS; break;
-            default: sysPrompt = promptEN; break;
-        }
-
-        String spanishDirective = "";
-
-        if ("es".equals(langCode)) {
-            spanishDirective = getSpanishRegionDirective(null, 0, chatId);
-        }
-
-        String formatProtocol =
-                "\n\n【最高优先级输出格式控制】\n"
-                + "禁止输出 JSON 或 Markdown 代码块。\n"
-                + "先写上半部分分析（按本地 prompt 要求），换行后直接输出 3 个翻译选项。\n"
-                + "每个选项行必须以 👉 开头（不带肤色、不加序号），格式：👉 外语文本 | 中文意译 | 语气标签。\n"
-                + "第二栏「中文意译」仅供用户核对：用简体中文写出这行外语实际的意思，不得留空；不得因迁就这一栏而损害外语版本的母语感。\n"
-                + "👉 只能作选项行开头，绝不能出现在分析中。\n";
-
-        String targetRule =
-                "\n【回复目标识别规则，必须遵守】\n"
-                + "1. 如果用户输入中包含【我要回复的对方原话】，"
-                + "说明用户是在回复对方这条消息。分析第一句必须写明："
-                + "\"你正在回复对方这句话：<原话>\"。\n"
-                + "2. 如果用户输入中包含【我对我自己之前这条外语消息的补充】，"
-                + "说明用户是在补充自己的历史消息。分析第一句必须写明："
-                + "\"你是在补充自己这条历史消息：<原话>\"。\n"
-                + "3. 如果没有显式选择回复目标，只能根据【当前 HelloTalk 真实对话】推断，"
-                + "不得把聊天ID、用户ID、QQ号或任何无上下文纯数字编号当成对方说过的话。\n"
-                + "4. 如果真实对话无法确定具体回复目标，就写："
-                + "\"我推断你是接着最近对话继续回复\"。\n"
-+ "5. 【死命令：说话人识别】实时对话中“我：”行是用户自己说的，“对方：”行才是对方说的。推断回复目标时，绝不能拿“我：”行当对方原话。\n"
-+ "6. 【补充自己优先】若最后一条是“我：”（用户刚发过消息、对方未回），优先判为“补充自己的历史消息”，而非“回复对方”。\n"
-+ "7. 【死命令：<translate> 不是对方原话】<translate> 内是本次要翻译的内容，绝非对方说过的话。写“回复对方这句话”时原话必须取自实时对话“对方：”行，禁止复制 <translate> 内容。\n";
-
-        String contextRule =
-                "\n【新版实时上下文使用规则】\n"
-                + "下面的聊天记录来自 HelloTalk 当前聊天页面正在使用的真实消息列表。\n"
-                + "这里才是本次分析的对话依据。\n"
-                + "不得根据 chatId、用户ID或其它纯数字编号编造聊天内容。\n"
-                + "「对方：」行是对方的真实外语原话，可参考其语言形式（句子长短、随意度、口语化程度）让译文与之协调；但严禁模仿「我：」行的措辞（那是我自己发过的译文，可能带翻译腔），也严禁复制对方特有的口头禅或专属用词。\n"
-                + "本次翻译的文字只取 <translate> 内的当前原文，其语气、态度与情绪强度也只由该原文决定，不得因对方语气而增减。\n";
-
-        String friendName = getFriendName(chatId);
-
-        String nameHint =
-                (friendName != null
-                        && !friendName.isEmpty()
-                        && !friendName.equals(chatId))
-                        ? "\n\n【当前聊天对象是：" + friendName
-                        + "。分析中可以自然使用昵称，但翻译结果不得擅自加入昵称。】"
-                        : "";
-
-        String retryDirective = "";
-        String rm = getRetryMode();
-        if ("regenerate".equals(rm)) {
-            retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 3 个选项，不要重复上一批的译法。\n";
-        } else if ("fixFormat".equals(rm)) {
-            retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 3 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文意译 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
-        }
-
-        String fullProtocol =
-                sysPrompt
-                + profileBlock(chatId)
-                + nameHint
-                + spanishDirective
-                + formatProtocol
-                + retryDirective
-                + targetRule
-                + contextRule;
-
-        messages.put(createMessageObj("system", fullProtocol));
-
-StringBuilder scriptBuilder = new StringBuilder();
-
-try {
-    JSONArray hist = loadHistory(chatId);
-    StringBuilder imgMemories = new StringBuilder();
-    int imgCount = 1;
-    for (int i = 0; i < hist.length(); i++) {
-        String c = hist.getJSONObject(i).optString("content", "");
-        if (c != null && (c.contains("【图片视觉存档】") || c.contains("[图片记忆:"))) {
-            imgMemories.append("第").append(imgCount).append("张图片: ").append(c).append("\n");
-            imgCount++;
-        }
-    }
-    if (imgMemories.length() > 0) {
-        scriptBuilder.append("【历史图片全局记忆】\n")
-                .append("以下是聊天中出现过的图片描述存档（AI 之前识别后保存）。如果当前对话涉及以前的图片，请优先参考这里：\n")
-                .append(imgMemories.toString())
-                .append("\n");
-    }
-} catch (Throwable ignored) {}
-
-scriptBuilder.append("【当前 HelloTalk 真实对话】\n");
-
-if (liveContext != null && !liveContext.trim().isEmpty()) {
-    scriptBuilder.append(liveContext.trim());
-} else {
-    scriptBuilder.append("（当前没有可用实时上下文）");
-}
-
-scriptBuilder.append("\n\n<translate>\n")
-        .append(text)
-        .append("\n</translate>");
-        messages.put(createMessageObj("user", scriptBuilder.toString()));
-
-        try {
-            return callChatMessages(messages, getMaxTokens());
-
-        } catch (IOException e) {
-
-            if (e.getMessage() != null
-                    && e.getMessage().contains("400")) {
-
-                return fallbackToPureTextRequest(messages);
-            }
-
-            throw e;
-        }
-
-    } catch (JSONException e) {
-
-        throw new IOException("构建新版实时翻译 Messages 失败");
-    }
-}
     public static String translateForPicker(String text, String langCode, String chatId) throws IOException {
         return translateWithHistory(text, langCode, chatId, false);
     }

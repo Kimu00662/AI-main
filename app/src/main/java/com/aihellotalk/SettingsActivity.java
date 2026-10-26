@@ -39,6 +39,8 @@ public class SettingsActivity extends Activity {
     private EditText etLiveContextMax;
     private EditText etRequestTimeout, etReceiveTimeout;
     private android.widget.CheckBox cbShowApiSwitchHint;
+    private android.widget.Spinner spinnerPickerCount, spinnerPickerAnalysis;
+    private android.widget.CheckBox cbPickerShowMeaning;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
     private EditText etPromptAR, etPromptPT, etPromptFR, etPromptDE, etPromptIT;
@@ -209,6 +211,40 @@ public class SettingsActivity extends Activity {
         etLiveContextMax = edit(prefs.getString("live_context_max", "30"));
         etLiveContextMax.setHint("0=关闭实时UI上下文，越大越慢但语境越全；仅新版 6.4.0 生效");
         advContentLayout.addView(etLiveContextMax);
+
+        advContentLayout.addView(lab("点译输出几个版本:"));
+        spinnerPickerCount = new android.widget.Spinner(this);
+        android.widget.ArrayAdapter<String> countAdapter = new android.widget.ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item,
+                new String[]{"3 个（全部）", "2 个（①+③）", "1 个（只用①）"});
+        countAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerPickerCount.setAdapter(countAdapter);
+        String savedCount = prefs.getString("picker_option_count", "3");
+        spinnerPickerCount.setSelection("1".equals(savedCount) ? 2 : ("2".equals(savedCount) ? 1 : 0));
+        advContentLayout.addView(spinnerPickerCount);
+
+        advContentLayout.addView(lab("上半部分分析:"));
+        spinnerPickerAnalysis = new android.widget.Spinner(this);
+        android.widget.ArrayAdapter<String> analysisAdapter = new android.widget.ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item,
+                new String[]{"完整输出", "简短（两句话内）", "内部判定但不输出", "完全不要分析"});
+        analysisAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerPickerAnalysis.setAdapter(analysisAdapter);
+        String savedAnalysis = prefs.getString("picker_analysis_mode", "full");
+        int analysisPos = 0;
+        if ("short".equals(savedAnalysis)) analysisPos = 1;
+        else if ("silent".equals(savedAnalysis)) analysisPos = 2;
+        else if ("none".equals(savedAnalysis)) analysisPos = 3;
+        spinnerPickerAnalysis.setSelection(analysisPos);
+        advContentLayout.addView(spinnerPickerAnalysis);
+
+        android.widget.LinearLayout meaningRow = new android.widget.LinearLayout(this);
+        meaningRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        cbPickerShowMeaning = new android.widget.CheckBox(this);
+        cbPickerShowMeaning.setText("输出第二栏中文对照");
+        cbPickerShowMeaning.setChecked(prefs.getBoolean("picker_show_meaning", true));
+        meaningRow.addView(cbPickerShowMeaning);
+        advContentLayout.addView(meaningRow);
 
         android.widget.LinearLayout hintRow = new android.widget.LinearLayout(this);
         hintRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -1198,7 +1234,11 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putString("max_chat_messages", maxChatStr);
         String liveContextMaxStr = etLiveContextMax.getText().toString().trim();
         if (liveContextMaxStr.isEmpty()) liveContextMaxStr = "30";
+        String[] analysisModeValues = {"full", "short", "silent", "none"};
         editor.putString("live_context_max", liveContextMaxStr);
+        editor.putString("picker_option_count", String.valueOf(3 - spinnerPickerCount.getSelectedItemPosition()));
+        editor.putString("picker_analysis_mode", analysisModeValues[spinnerPickerAnalysis.getSelectedItemPosition()]);
+        editor.putBoolean("picker_show_meaning", cbPickerShowMeaning.isChecked());
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("request_timeout", reqTimeoutStr);
@@ -1396,6 +1436,9 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "stealth_invisible_visit=" + prefs.getBoolean("stealth_invisible_visit", false) + "\n"
 + "stealth_visit_log=" + prefs.getBoolean("stealth_visit_log", true) + "\n"
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
++ "picker_option_count=" + prefs.getString("picker_option_count", "3") + "\n"
++ "picker_analysis_mode=" + prefs.getString("picker_analysis_mode", "full") + "\n"
++ "picker_show_meaning=" + prefs.getBoolean("picker_show_meaning", true) + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";

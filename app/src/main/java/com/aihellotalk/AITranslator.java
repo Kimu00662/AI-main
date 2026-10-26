@@ -279,6 +279,27 @@ public static int getLiveContextMax() {
 
     return n;
 }
+
+// 点译输出形态配置。均可在设置页随时调整，不需要重编译。
+public static int getPickerOptionCount() {
+    int n = readConfigInt("picker_option_count", 3);
+    if (n < 1) n = 1;
+    if (n > 3) n = 3;
+    return n;
+}
+
+// none=不做判定直接翻 / silent=内部判定但不写出 / short=简短 / full=完整
+public static String getPickerAnalysisMode() {
+    String v = readConfigValue("picker_analysis_mode");
+    if (v == null) return "full";
+    v = v.trim().toLowerCase(Locale.ROOT);
+    if ("none".equals(v) || "silent".equals(v) || "short".equals(v) || "full".equals(v)) return v;
+    return "full";
+}
+
+public static boolean getPickerShowMeaning() {
+    return readConfigBoolean("picker_show_meaning", true);
+}
     private static int getMaxTokens() {
         int tokens = 8000;
         try {
@@ -2213,6 +2234,9 @@ private static boolean isDirtyHistoryContent(String content) {
         List<String[]> items = new ArrayList<>();
         if (result == null || result.trim().isEmpty()) return items;
 
+        final int maxOptions = getPickerOptionCount();
+        final boolean showMeaning = getPickerShowMeaning();
+
         // 1. 先用 👉 符号去抓取
         String[] lines = result.replace("\r\n", "\n").replace("\r", "\n").replace("*", "").split("\n");
         Set<String> seenAnchor = new HashSet<>();
@@ -2226,9 +2250,15 @@ private static boolean isDirtyHistoryContent(String content) {
 
                 String foreign = content, meaning = "", tone = "";
                 String[] parts = content.split("\\|");
-                if (parts.length >= 1) foreign = parts[0].trim();
-                if (parts.length >= 2) meaning = parts[1].trim();
-                if (parts.length >= 3) tone = parts[2].trim();
+                if (showMeaning) {
+                    if (parts.length >= 1) foreign = parts[0].trim();
+                    if (parts.length >= 2) meaning = parts[1].trim();
+                    if (parts.length >= 3) tone = parts[2].trim();
+                } else {
+                    // 两栏格式：外语 | 语气标签
+                    if (parts.length >= 1) foreign = parts[0].trim();
+                    if (parts.length >= 2) tone = parts[1].trim();
+                }
 
                 foreign = sanitizeForeignText(foreign);
                 if (foreign.isEmpty()) continue;
@@ -2237,7 +2267,7 @@ private static boolean isDirtyHistoryContent(String content) {
                 if (!seenAnchor.add(norm)) continue;
 
                 items.add(new String[]{foreign, meaning, tone});
-                if (items.size() >= 3) break;
+                if (items.size() >= maxOptions) break;
             }
         }
         // 如果靠 👉 抓到了，就直接返回，大功告成！
@@ -2250,7 +2280,7 @@ private static boolean isDirtyHistoryContent(String content) {
             if (opts != null) {
                 Set<String> seen = new HashSet<>();
                 for (int i = 0; i < opts.length(); i++) {
-                    if (items.size() >= 3) break;
+                    if (items.size() >= maxOptions) break;
                     JSONObject o = opts.optJSONObject(i);
                     if (o == null) continue;
 
@@ -2600,8 +2630,38 @@ private static boolean isDirtyHistoryContent(String content) {
             String spanishDirective = "";
             if ("es".equals(langCode)) spanishDirective = getSpanishRegionDirective(null, 0, chatId);
 
+            int pickerCount = getPickerOptionCount();
+            String pickerAnalysis = getPickerAnalysisMode();
+            boolean pickerMeaning = getPickerShowMeaning();
+
+            String countDirective;
+            if (pickerCount == 1) {
+                countDirective = "只输出 1 个选项，用版本①极其自然版，不要输出②③。\n";
+            } else if (pickerCount == 2) {
+                countDirective = "输出 2 个选项，只给版本①极其自然版和版本③母语高光版，跳过②。\n";
+            } else {
+                countDirective = "输出 3 个选项，对应版本①极其自然版、②日常口语版、③母语高光版。\n";
+            }
+
+            String analysisDirective;
+            if ("none".equals(pickerAnalysis)) {
+                analysisDirective = "不要写任何分析，直接输出选项行。\n";
+            } else if ("silent".equals(pickerAnalysis)) {
+                analysisDirective = "先在内部完成回复目标判定和语气判断，但不要把判定过程写出来，直接输出选项行。\n";
+            } else if ("short".equals(pickerAnalysis)) {
+                analysisDirective = "分析控制在两句话内，只写回复目标判定和语气判断，然后直接输出选项行。\n";
+            } else {
+                analysisDirective = "先写分析，之后输出选项行。\n";
+            }
+
+            String columnsDirective = pickerMeaning
+                    ? "每个选项单独一行，以 👉 开头，三栏用 | 分隔：👉 外语 | 中文意译 | 语气标签\n"
+                    : "每个选项单独一行，以 👉 开头，两栏用 | 分隔：👉 外语 | 语气标签\n";
+
             String formatProtocol = "\n\n【输出格式·代码按此解析】\n"
-                    + "先写分析，之后每个选项单独一行，以 👉 开头，三栏用 | 分隔：👉 外语 | 中文意译 | 语气标签\n"
+                    + analysisDirective
+                    + countDirective
+                    + columnsDirective
                     + "禁止 JSON、Markdown、代码块。👉 只能出现在选项行开头。\n";
 
             String targetRule = "\n【输入标记说明】\n"
@@ -2622,9 +2682,9 @@ private static boolean isDirtyHistoryContent(String content) {
             String retryDirective = "";
             String rm = getRetryMode();
             if ("regenerate".equals(rm)) {
-                retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 3 个选项，不要重复上一批的译法。\n";
+                retryDirective = "\n【重试·换一批】用户对上一批翻译结果不满意。这次请给出措辞、语气、用词都与上一批明显不同的 " + pickerCount + " 个选项，不要重复上一批的译法。\n";
             } else if ("fixFormat".equals(rm)) {
-                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：先写上半部分分析，换行后输出 3 个选项，每行只能以 👉 开头，格式为「👉 外语文本 | 中文意译 | 语气标签」。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
+                retryDirective = "\n【重试·格式修复·最高优先级】你上一次的输出没有按规定的格式！这次必须严格做到：" + analysisDirective.trim() + countDirective.trim() + "，每行只能以 👉 开头。绝对禁止 JSON、Markdown、编号、多余符号或任何非规定内容。\n";
             }
 
             String fullProtocol = sysPrompt + profileBlock(chatId) + nameHint + spanishDirective + formatProtocol + retryDirective + targetRule + contextRule;

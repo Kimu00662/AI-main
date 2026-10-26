@@ -1366,15 +1366,8 @@ private static String askAiQuestionHt6090(String text, String chatId) throws Exc
 private static String translateForPickerHt6090(
         String text, String langCode, String chatId, boolean retry) throws Exception {
     logHt6090RequestSummary();
-    long t0 = System.currentTimeMillis();
     try {
-        String r = AITranslator.translateForPicker(text, langCode, chatId, retry);
-        log("点译实验: 条数=" + AITranslator.getPickerOptionCount()
-                + " 分析=" + AITranslator.getPickerAnalysisMode()
-                + " 对照=" + AITranslator.getPickerShowMeaning()
-                + " 耗时=" + (System.currentTimeMillis() - t0) + "ms"
-                + " 输出=" + (r == null ? 0 : r.length()) + "字");
-        return r;
+        return AITranslator.translateForPicker(text, langCode, chatId, retry);
     } catch (Exception e) {
         log("6.0.90 请求失败: " + (e.getMessage() != null
                 ? e.getMessage() : e.getClass().getSimpleName()));

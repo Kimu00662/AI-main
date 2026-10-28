@@ -1492,6 +1492,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
         final String finalLiveContextMaxStr = liveContextMaxStr;
         final boolean finalShowApiSwitchHint = cbShowApiSwitchHint.isChecked();
         final String fq1 = q1, fq2 = q2, fq3 = q3, fq4 = q4, fq5 = q5;
+        final String extraApiLines = extraApiConfigLines();
         
         new Thread(() -> {
             try {
@@ -1571,7 +1572,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "picker_api_race=" + prefs.getBoolean("picker_api_race", false) + "\n"
-+ extraApiConfigLines()
++ extraApiLines
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";
                 runRoot(cfg);

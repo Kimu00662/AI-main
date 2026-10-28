@@ -2764,7 +2764,7 @@ scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
                 } else { cleanMsg.put("content", contentObj.toString()); }
                 cleanMessages.put(cleanMsg);
             }
-            return callChatMessages(cleanMessages, isReceive, raceEligible);
+            return callChatMessages(cleanMessages, getMaxTokens(), isReceive, raceEligible);
         } catch (JSONException e) { throw new IOException("降级解析失败"); }
     }
 

@@ -2888,54 +2888,12 @@ private static class RaceResult {
     final ApiEndpoint endpoint;
     final String content;
     final IOException error;
-    final long elapsedMs;
 
-    RaceResult(ApiEndpoint endpoint, String content, IOException error, long elapsedMs) {
+    RaceResult(ApiEndpoint endpoint, String content, IOException error) {
         this.endpoint = endpoint;
         this.content = content;
         this.error = error;
-        this.elapsedMs = elapsedMs;
     }
-}
-
-private static final Map<String, Long> endpointLatencyMs = new ConcurrentHashMap<>();
-
-private static String latencyKey(ApiEndpoint ep) {
-    return ep.slot + "|" + ep.model;
-}
-
-public static int getPickerRaceDelayMs() {
-    int sec = readConfigInt("picker_race_delay_sec", 0);
-    if (sec < 0) sec = 0;
-    if (sec > 30) sec = 30;
-    return sec * 1000;
-}
-
-private static void submitRacer(ExecutorCompletionService<RaceResult> completion,
-                                List<Future<RaceResult>> futures,
-                                final ApiEndpoint racer,
-                                final JSONObject body,
-                                final List<Call> calls,
-                                final AtomicBoolean won) {
-    futures.add(completion.submit(() -> {
-        long startAt = System.currentTimeMillis();
-        try {
-            JSONObject requestBody = new JSONObject(body.toString());
-            requestBody.put("model", racer.model);
-            if (!"default".equals(racer.reasoningEffort)) {
-                requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
-            } else {
-                requestBody.remove("reasoning_effort");
-            }
-            String content = executeRaceRequest(racer, requestBody, calls, won);
-            return new RaceResult(racer, content, null, System.currentTimeMillis() - startAt);
-        } catch (IOException e) {
-            return new RaceResult(racer, null, e, System.currentTimeMillis() - startAt);
-        } catch (JSONException e) {
-            return new RaceResult(racer, null,
-                    new IOException("竞速请求体构造失败", e), System.currentTimeMillis() - startAt);
-        }
-    }));
 }
 
 private static String executePickerRace(JSONObject body) throws IOException {
@@ -2986,75 +2944,52 @@ private static String executePickerRace(JSONObject body) throws IOException {
         throw new IOException("所有可发送 API 均在冷却中，请稍后重试");
     }
 
-    final int delayMs = getPickerRaceDelayMs();
-    Collections.sort(racers, (a, b) -> Long.compare(
-            endpointLatencyMs.getOrDefault(latencyKey(a), Long.MAX_VALUE),
-            endpointLatencyMs.getOrDefault(latencyKey(b), Long.MAX_VALUE)));
-
-    diag("竞速启动，参与API数量=" + racers.size()
-            + (delayMs > 0 ? "，延迟追加=" + delayMs + "ms" : "，全部同发"));
+    Log.i(TAG, "HT_AI 点译竞速启动，API 数量=" + racers.size());
+    diag("竞速启动，参与API数量=" + racers.size());
     ExecutorService pool = Executors.newFixedThreadPool(racers.size());
     ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
     List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
     AtomicBoolean won = new AtomicBoolean(false);
     List<Future<RaceResult>> futures = new ArrayList<>();
 
+    for (ApiEndpoint ep : racers) {
+        final ApiEndpoint racer = ep;
+        futures.add(completion.submit(() -> {
+            try {
+                JSONObject requestBody = new JSONObject(body.toString());
+                requestBody.put("model", racer.model);
+                if (!"default".equals(racer.reasoningEffort)) {
+                    requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
+                } else {
+                    requestBody.remove("reasoning_effort");
+                }
+                String content = executeRaceRequest(racer, requestBody, calls, won);
+                return new RaceResult(racer, content, null);
+            } catch (IOException e) {
+                return new RaceResult(racer, null, e);
+            } catch (JSONException e) {
+                return new RaceResult(racer, null, new IOException("竞速请求体构造失败", e));
+            }
+        }));
+    }
+
     IOException lastError = null;
     int timeoutCount = 0;
     int invalidCount = 0;
     int otherFailureCount = 0;
-    int submitted = 0;
-    int completed = 0;
-    boolean allSubmitted = false;
-    long startAt = System.currentTimeMillis();
     try {
-        int initial = (delayMs <= 0 || racers.size() == 1) ? racers.size() : 1;
-        for (int i = 0; i < initial; i++) {
-            submitRacer(completion, futures, racers.get(i), body, calls, won);
-        }
-        submitted = initial;
-        allSubmitted = submitted >= racers.size();
-
-        while (true) {
-            if (emergencyStop) break;
-
-            if (!allSubmitted && System.currentTimeMillis() - startAt >= delayMs) {
-                for (int i = submitted; i < racers.size(); i++) {
-                    submitRacer(completion, futures, racers.get(i), body, calls, won);
-                }
-                diag("竞速追加发起，累计=" + racers.size());
-                submitted = racers.size();
-                allSubmitted = true;
-                continue;
-            }
-
-            long waitMs = allSubmitted
-                    ? 200L
-                    : Math.max(1L, delayMs - (System.currentTimeMillis() - startAt));
-            Future<RaceResult> finished;
-            try {
-                finished = completion.poll(waitMs, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw new IOException("竞速被中断", ie);
-            }
-            if (finished == null) continue;
-
+        for (int i = 0; i < racers.size(); i++) {
             RaceResult result;
             try {
-                result = finished.get();
+                result = completion.take().get();
             } catch (Exception e) {
                 lastError = new IOException("竞速任务异常", e);
-                completed++;
                 continue;
             }
-            completed++;
-
             if (result.content != null && isUsablePickerRaceResult(result.content)
                     && won.compareAndSet(false, true)) {
                 lastUsedEndpoint = result.endpoint;
                 activePickerSlot = result.endpoint.slot;
-                endpointLatencyMs.put(latencyKey(result.endpoint), result.elapsedMs);
                 if (apiSwitchListener != null) {
                     apiSwitchListener.onApiSwitched(result.endpoint.slot,
                             result.endpoint.model, result.endpoint.url);
@@ -3064,41 +2999,30 @@ private static String executePickerRace(JSONObject body) throws IOException {
                         if (!call.isCanceled()) call.cancel();
                     }
                 }
+                Log.i(TAG, "HT_AI 点译竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model);
                 diag("竞速胜出：API=" + result.endpoint.slot
-                        + " model=" + result.endpoint.model
-                        + " 耗时=" + result.elapsedMs + "ms"
-                        + (allSubmitted ? "" : "（首选即中）"));
+                        + " model=" + result.endpoint.model);
                 return result.content;
             }
-
             if (result.content != null && !isUsablePickerRaceResult(result.content)) {
                 invalidCount++;
                 result = new RaceResult(result.endpoint, null,
-                        new IOException("竞速返回内容无法解析为点译选项"), result.elapsedMs);
+                        new IOException("竞速返回内容无法解析为点译选项"));
             }
-
             if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
                     if (isTimeoutFailure(result.error)) timeoutCount++;
-                    else if (!"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
+                    else if (result.content == null && !"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
                         otherFailureCount++;
                     }
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
+                    Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
+                            + " model=" + result.endpoint.model + " " + result.error.getMessage());
                     diag("竞速端点失败：API=" + result.endpoint.slot + " " + result.error.getMessage());
                 }
-                if (!allSubmitted) {
-                    for (int i = submitted; i < racers.size(); i++) {
-                        submitRacer(completion, futures, racers.get(i), body, calls, won);
-                    }
-                    diag("首选失败，立即追加，累计=" + racers.size());
-                    submitted = racers.size();
-                    allSubmitted = true;
-                    continue;
-                }
             }
-
-            if (allSubmitted && completed >= submitted) break;
         }
     } finally {
         won.set(true);
@@ -3112,8 +3036,8 @@ private static String executePickerRace(JSONObject body) throws IOException {
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
-    if (timeoutCount > 0 && timeoutCount + otherFailureCount + invalidCount >= racers.size()) {
-        throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时或失败（单个上限 "
+    if (timeoutCount == racers.size()) {
+        throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时（每个上限 "
                 + getRequestTimeoutSeconds() + " 秒）");
     }
     throw new IOException("点译竞速全部失败：超时 " + timeoutCount

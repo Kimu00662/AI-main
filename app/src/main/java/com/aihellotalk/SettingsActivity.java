@@ -38,7 +38,7 @@ public class SettingsActivity extends Activity {
     private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat;
     private EditText etLiveContextMax;
     private EditText etRequestTimeout, etReceiveTimeout;
-    private android.widget.CheckBox cbShowApiSwitchHint;
+    private android.widget.CheckBox cbShowApiSwitchHint, cbPickerRace;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
     private EditText etPromptAR, etPromptPT, etPromptFR, etPromptDE, etPromptIT;
@@ -217,6 +217,14 @@ public class SettingsActivity extends Activity {
         cbShowApiSwitchHint.setChecked(prefs.getBoolean("show_api_switch_hint", true));
         hintRow.addView(cbShowApiSwitchHint);
         advContentLayout.addView(hintRow);
+
+        android.widget.LinearLayout raceRow = new android.widget.LinearLayout(this);
+        raceRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        cbPickerRace = new android.widget.CheckBox(this);
+        cbPickerRace.setText("点译 API 竞速（所有可发送 API 同时请求，先返回者胜出）");
+        cbPickerRace.setChecked(prefs.getBoolean("picker_api_race", false));
+        raceRow.addView(cbPickerRace);
+        advContentLayout.addView(raceRow);
 
         advContentLayout.addView(lab("最大输出长度 (Max Tokens):"));
         etMaxTokens = edit(prefs.getString("max_tokens", "8000"));
@@ -1200,6 +1208,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         if (liveContextMaxStr.isEmpty()) liveContextMaxStr = "30";
         editor.putString("live_context_max", liveContextMaxStr);
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
+        editor.putBoolean("picker_api_race", cbPickerRace.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("request_timeout", reqTimeoutStr);
         editor.putString("receive_timeout", recvTimeoutStr);
@@ -1397,6 +1406,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "stealth_visit_log=" + prefs.getBoolean("stealth_visit_log", true) + "\n"
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
++ "picker_api_race=" + prefs.getBoolean("picker_api_race", false) + "\n"
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";
                 runRoot(cfg);

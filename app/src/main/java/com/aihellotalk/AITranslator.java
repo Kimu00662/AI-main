@@ -34,10 +34,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import okhttp3.Call;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -212,6 +218,7 @@ private static volatile boolean emergencyStop = false;
 private static volatile int activePickerSlot = -1;
 private static volatile int skipNextPickerSlot = -1;
 private static final ThreadLocal<String> callSource = new ThreadLocal<>();
+private static final ThreadLocal<Boolean> pickerTranslationRequest = new ThreadLocal<>();
 
 public static void setCallSource(String src) {
     callSource.set(src);
@@ -2705,14 +2712,18 @@ if (!hasContext) {
 scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
+            pickerTranslationRequest.set(Boolean.TRUE);
             try {
-                return callChatMessages(messages, getMaxTokens());
-            } catch (IOException e) {
-                if (e.getMessage() != null && e.getMessage().contains("400")) {
-                    return fallbackToPureTextRequest(messages);
-                } else {
+                try {
+                    return callChatMessages(messages, getMaxTokens());
+                } catch (IOException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("400")) {
+                        return fallbackToPureTextRequest(messages);
+                    }
                     throw e;
                 }
+            } finally {
+                pickerTranslationRequest.remove();
             }
         } catch (JSONException e) {
             throw new IOException("构建Messages失败");
@@ -2817,6 +2828,10 @@ try {
 }
 
 private static String executeRequest(JSONObject body, boolean isReceive) throws IOException {
+    if (!isReceive && Boolean.TRUE.equals(pickerTranslationRequest.get())
+            && readConfigBoolean("picker_api_race", false)) {
+        return executePickerRace(body);
+    }
     return executeRequestWithRotation(body, null, isReceive);
 }
 
@@ -2839,6 +2854,208 @@ private static String executeRequestWithEitherDirection(OkHttpClient useClient, 
     } catch (IOException receiveError) {
         return executeRequestWithRotation(body, useClient, false);
     }
+}
+
+private static class RaceResult {
+    final ApiEndpoint endpoint;
+    final String content;
+    final IOException error;
+
+    RaceResult(ApiEndpoint endpoint, String content, IOException error) {
+        this.endpoint = endpoint;
+        this.content = content;
+        this.error = error;
+    }
+}
+
+private static String executePickerRace(JSONObject body) throws IOException {
+    if (emergencyStop) throw new IOException("USER_STOPPED");
+
+    final List<ApiEndpoint> racers = new ArrayList<>();
+    synchronized (AITranslator.class) {
+        reloadEndpointsIfConfigChanged();
+        Map<Integer, List<ApiEndpoint>> bySlot = new LinkedHashMap<>();
+        for (ApiEndpoint ep : endpoints) {
+            if (!ep.enabled || !ep.canSend()) continue;
+            List<ApiEndpoint> list = bySlot.get(ep.slot);
+            if (list == null) {
+                list = new ArrayList<>();
+                bySlot.put(ep.slot, list);
+            }
+            list.add(ep);
+        }
+        if (bySlot.isEmpty()) throw new IOException("当前没有可用于点译发送的 API");
+
+        int slotToSkip = skipNextPickerSlot;
+        skipNextPickerSlot = -1;
+        if (slotToSkip > 0 && bySlot.size() > 1) bySlot.remove(slotToSkip);
+
+        for (Map.Entry<Integer, List<ApiEndpoint>> entry : bySlot.entrySet()) {
+            List<ApiEndpoint> candidates = entry.getValue();
+            if (candidates == null || candidates.isEmpty()) continue;
+            int cursor = slotModelCursor.getOrDefault(entry.getKey(), 0);
+            if (cursor < 0 || cursor >= candidates.size()) cursor = 0;
+
+            ApiEndpoint chosen = null;
+            for (int offset = 0; offset < candidates.size(); offset++) {
+                ApiEndpoint ep = candidates.get((cursor + offset) % candidates.size());
+                if (ep.isAvailable()) {
+                    chosen = ep;
+                    break;
+                }
+            }
+            if (chosen == null) chosen = candidates.get(cursor);
+            racers.add(chosen);
+            int chosenIndex = candidates.indexOf(chosen);
+            slotModelCursor.put(entry.getKey(), (chosenIndex + 1) % candidates.size());
+        }
+        saveRotationState(persistedNextSlotId);
+    }
+
+    Log.i(TAG, "HT_AI 点译竞速启动，API 数量=" + racers.size());
+    ExecutorService pool = Executors.newFixedThreadPool(racers.size());
+    ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
+    List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
+    AtomicBoolean won = new AtomicBoolean(false);
+    List<Future<RaceResult>> futures = new ArrayList<>();
+
+    for (ApiEndpoint ep : racers) {
+        final ApiEndpoint racer = ep;
+        futures.add(completion.submit(() -> {
+            try {
+                JSONObject requestBody = new JSONObject(body.toString());
+                requestBody.put("model", racer.model);
+                if (!"default".equals(racer.reasoningEffort)) {
+                    requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
+                } else {
+                    requestBody.remove("reasoning_effort");
+                }
+                String content = executeRaceRequest(racer, requestBody, calls, won);
+                return new RaceResult(racer, content, null);
+            } catch (IOException e) {
+                return new RaceResult(racer, null, e);
+            } catch (JSONException e) {
+                return new RaceResult(racer, null, new IOException("竞速请求体构造失败", e));
+            }
+        }));
+    }
+
+    IOException lastError = null;
+    try {
+        for (int i = 0; i < racers.size(); i++) {
+            RaceResult result;
+            try {
+                result = completion.take().get();
+            } catch (Exception e) {
+                lastError = new IOException("竞速任务异常", e);
+                continue;
+            }
+            if (result.content != null && isUsablePickerRaceResult(result.content)
+                    && won.compareAndSet(false, true)) {
+                lastUsedEndpoint = result.endpoint;
+                activePickerSlot = result.endpoint.slot;
+                if (apiSwitchListener != null) {
+                    apiSwitchListener.onApiSwitched(result.endpoint.slot,
+                            result.endpoint.model, result.endpoint.url);
+                }
+                synchronized (calls) {
+                    for (Call call : calls) {
+                        if (!call.isCanceled()) call.cancel();
+                    }
+                }
+                Log.i(TAG, "HT_AI 点译竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model);
+                return result.content;
+            }
+            if (result.content != null && !isUsablePickerRaceResult(result.content)) {
+                result = new RaceResult(result.endpoint, null,
+                        new IOException("竞速返回内容无法解析为点译选项"));
+            }
+            if (result.error != null) {
+                lastError = result.error;
+                if (!isCanceledFailure(result.error) && !emergencyStop) {
+                    result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
+                    Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
+                            + " model=" + result.endpoint.model + " " + result.error.getMessage());
+                }
+            }
+        }
+    } finally {
+        won.set(true);
+        synchronized (calls) {
+            for (Call call : calls) {
+                if (!call.isCanceled()) call.cancel();
+            }
+        }
+        for (Future<RaceResult> future : futures) future.cancel(true);
+        pool.shutdownNow();
+    }
+
+    if (emergencyStop) throw new IOException("USER_STOPPED");
+    throw lastError != null ? lastError : new IOException("所有点译 API 竞速请求均失败");
+}
+
+private static String executeRaceRequest(ApiEndpoint ep, JSONObject body,
+                                         List<Call> calls, AtomicBoolean won) throws IOException {
+    try {
+        return executeRaceRequestOnce(ep, body, calls, won);
+    } catch (IOException firstError) {
+        if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
+            try {
+                JSONObject fallback = new JSONObject(body.toString());
+                fallback.remove("reasoning_effort");
+                return executeRaceRequestOnce(ep, fallback, calls, won);
+            } catch (JSONException e) {
+                throw new IOException("竞速思考参数降级请求体构造失败", e);
+            }
+        }
+        throw firstError;
+    }
+}
+
+private static String executeRaceRequestOnce(ApiEndpoint ep, JSONObject body,
+                                             List<Call> calls, AtomicBoolean won) throws IOException {
+    if (won.get() || emergencyStop) throw new IOException("Canceled");
+    Request req = new Request.Builder()
+            .url(fixUrl(ep.url))
+            .header("Authorization", "Bearer " + ep.key)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .post(RequestBody.create(body.toString(), JSON_TYPE))
+            .build();
+    Call call = ep.ensureClient().newCall(req);
+    calls.add(call);
+    try (Response resp = call.execute()) {
+        String responseBody = resp.body() != null ? resp.body().string() : "";
+        if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + responseBody);
+        try {
+            JSONObject json = new JSONObject(responseBody);
+            String content = json.getJSONArray("choices").getJSONObject(0)
+                    .getJSONObject("message").optString("content", "").trim();
+            if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
+            return content;
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("JSON解析失败：" + responseBody);
+        }
+    }
+}
+
+private static boolean isUsablePickerRaceResult(String content) {
+    if (content == null || content.trim().isEmpty()) return false;
+    if (isRefusalResponse(content)) return false;
+    return !parseTranslateOptions(content).isEmpty();
+}
+
+private static boolean isCanceledFailure(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+        String message = current.getMessage();
+        if (message != null && message.toLowerCase(Locale.ROOT).contains("canceled")) return true;
+        current = current.getCause();
+    }
+    return false;
 }
 
 private static synchronized String executeRequestWithRotation(JSONObject body, OkHttpClient forceClient, boolean isReceive) throws IOException {

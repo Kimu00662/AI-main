@@ -2904,12 +2904,16 @@ private static String executePickerRace(JSONObject body) throws IOException {
                     break;
                 }
             }
-            if (chosen == null) chosen = candidates.get(cursor);
+            if (chosen == null) continue;
             racers.add(chosen);
             int chosenIndex = candidates.indexOf(chosen);
             slotModelCursor.put(entry.getKey(), (chosenIndex + 1) % candidates.size());
         }
         saveRotationState(persistedNextSlotId);
+    }
+
+    if (racers.isEmpty()) {
+        throw new IOException("所有可发送 API 均在冷却中，请稍后重试");
     }
 
     Log.i(TAG, "HT_AI 点译竞速启动，API 数量=" + racers.size());
@@ -2941,6 +2945,9 @@ private static String executePickerRace(JSONObject body) throws IOException {
     }
 
     IOException lastError = null;
+    int timeoutCount = 0;
+    int invalidCount = 0;
+    int otherFailureCount = 0;
     try {
         for (int i = 0; i < racers.size(); i++) {
             RaceResult result;
@@ -2968,12 +2975,17 @@ private static String executePickerRace(JSONObject body) throws IOException {
                 return result.content;
             }
             if (result.content != null && !isUsablePickerRaceResult(result.content)) {
+                invalidCount++;
                 result = new RaceResult(result.endpoint, null,
                         new IOException("竞速返回内容无法解析为点译选项"));
             }
             if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
+                    if (isTimeoutFailure(result.error)) timeoutCount++;
+                    else if (result.content == null && !"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
+                        otherFailureCount++;
+                    }
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
                     Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
                             + " model=" + result.endpoint.model + " " + result.error.getMessage());
@@ -2992,7 +3004,14 @@ private static String executePickerRace(JSONObject body) throws IOException {
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
-    throw lastError != null ? lastError : new IOException("所有点译 API 竞速请求均失败");
+    if (timeoutCount == racers.size()) {
+        throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时（每个上限 "
+                + getRequestTimeoutSeconds() + " 秒）");
+    }
+    throw new IOException("点译竞速全部失败：超时 " + timeoutCount
+            + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
+            + (lastError != null && lastError.getMessage() != null
+                    ? "。最后错误：" + lastError.getMessage() : ""));
 }
 
 private static String executeRaceRequest(ApiEndpoint ep, JSONObject body,

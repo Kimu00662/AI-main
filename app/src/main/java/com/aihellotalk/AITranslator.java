@@ -209,12 +209,28 @@ private static final long API_COOLDOWN_MS = 3_000L;
 private static volatile ApiEndpoint lastUsedEndpoint = null;
 private static volatile ApiSwitchListener apiSwitchListener = null;
 private static volatile boolean emergencyStop = false;
+private static volatile int activePickerSlot = -1;
+private static volatile int skipNextPickerSlot = -1;
 private static final ThreadLocal<String> callSource = new ThreadLocal<>();
 
-public static void setCallSource(String src) { callSource.set(src); }
-public static void clearCallSource() { callSource.remove(); }
+public static void setCallSource(String src) {
+    callSource.set(src);
+    if ("picker".equals(src)) activePickerSlot = -1;
+}
+public static void clearCallSource() {
+    if ("picker".equals(callSource.get())) activePickerSlot = -1;
+    callSource.remove();
+}
 public static void setApiSwitchListener(ApiSwitchListener l) { apiSwitchListener = l; }
 public static void requestEmergencyStop() { emergencyStop = true; }
+public static void requestEmergencyStopAndRotate() {
+    int slot = activePickerSlot;
+    if (slot > 0) {
+        skipNextPickerSlot = slot;
+        Log.i(TAG, "HT_AI 急停：下次点译跳过 API=" + slot);
+    }
+    cancelOngoingTranslation();
+}
 public static boolean isEmergencyStop() { return emergencyStop; }
 public static void clearEmergencyStop() { emergencyStop = false; }
 private static final ThreadLocal<String> retryMode = new ThreadLocal<>();
@@ -2852,6 +2868,15 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
     }
     if (slots.isEmpty()) throw new IOException("当前动作对应的方向找不到可用 API");
 
+    if (!isReceive && "picker".equals(callSource.get())) {
+        int slotToSkip = skipNextPickerSlot;
+        skipNextPickerSlot = -1;
+        if (slotToSkip > 0 && slots.containsKey(slotToSkip) && slots.size() > 1) {
+            slots.remove(slotToSkip);
+            Log.i(TAG, "HT_AI 本次点译跳过 API=" + slotToSkip);
+        }
+    }
+
     List<Integer> slotIds = new ArrayList<>(slots.keySet());
     int slotIndex = 0;
     for (int i = 0; i < slotIds.size(); i++) {
@@ -3026,8 +3051,11 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
 
             // 点译在真正发请求前显示本次实际选中的 API + 模型。
             lastUsedEndpoint = targetEp;
-            if ("picker".equals(callSource.get()) && apiSwitchListener != null) {
-                apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
+            if ("picker".equals(callSource.get())) {
+                activePickerSlot = targetEp.slot;
+                if (apiSwitchListener != null) {
+                    apiSwitchListener.onApiSwitched(targetEp.slot, targetEp.model, targetEp.url);
+                }
             }
 
             OkHttpClient useClient;
@@ -3051,6 +3079,11 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
             return result;
         } catch (Exception e) {
             if (emergencyStop) throw e;
+
+            if (!isReceive && "picker".equals(callSource.get()) && isTimeoutFailure(e)) {
+                skipNextPickerSlot = targetEp.slot;
+                Log.i(TAG, "HT_AI 点译超时：下次跳过 API=" + targetEp.slot);
+            }
 
             // 失败也消耗 1 次 API 权重，并让失败模型进入 3 秒冷却。
             targetEp.onFailure();
@@ -3117,6 +3150,20 @@ private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObjec
         } catch (IOException e) { throw e; }
         catch (Exception e) { throw new IOException("JSON解析失败：" + responseBody); }
     }
+}
+
+private static boolean isTimeoutFailure(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+        if (current instanceof java.net.SocketTimeoutException) return true;
+        String message = current.getMessage();
+        if (message != null) {
+            String lower = message.toLowerCase(Locale.ROOT);
+            if (lower.contains("timeout") || lower.contains("timed out")) return true;
+        }
+        current = current.getCause();
+    }
+    return false;
 }
 
 private static String normalizeReasoningEffort(String effort) {

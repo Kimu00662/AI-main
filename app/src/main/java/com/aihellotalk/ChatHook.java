@@ -3352,7 +3352,7 @@ private static void setBeanField(Object bean, String text) {
     }
 
     private static void emergencyStopTranslation(Button btn) {
-        AITranslator.cancelOngoingTranslation();
+        AITranslator.requestEmergencyStopAndRotate();
         isTranslatingAPI = false;
         if (btn != null) {
             btn.setEnabled(true);

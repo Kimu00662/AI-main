@@ -199,6 +199,19 @@ public interface ApiSwitchListener {
     void onApiSwitched(int index, String model, String url);
 }
 
+public interface DiagListener {
+    void onDiag(String message);
+}
+
+private static volatile DiagListener diagListener = null;
+public static void setDiagListener(DiagListener l) { diagListener = l; }
+
+static void diag(String message) {
+    if (diagListener != null) {
+        try { diagListener.onDiag(message); } catch (Throwable ignored) {}
+    }
+}
+
 private static final List<ApiEndpoint> endpoints = new ArrayList<>();
 private static final Map<Integer, Integer> slotCallCounts = new ConcurrentHashMap<>();
 private static final Map<Integer, Set<String>> slotModelsUsed = new ConcurrentHashMap<>();
@@ -2715,6 +2728,9 @@ scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
             Log.i(TAG, "HT_AI 点译模式: "
                     + (readConfigBoolean("picker_api_race", false) ? "竞速" : "普通")
                     + (retry ? " (换一批)" : " (首次)"));
+            diag("点译模式: "
+                    + (readConfigBoolean("picker_api_race", false) ? "竞速" : "普通")
+                    + (retry ? " (换一批)" : " (首次)"));
             try {
                 return callChatMessages(messages, getMaxTokens(), false, true);
             } catch (IOException e) {
@@ -2929,6 +2945,7 @@ private static String executePickerRace(JSONObject body) throws IOException {
     }
 
     Log.i(TAG, "HT_AI 点译竞速启动，API 数量=" + racers.size());
+    diag("竞速启动，参与API数量=" + racers.size());
     ExecutorService pool = Executors.newFixedThreadPool(racers.size());
     ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
     List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
@@ -2984,6 +3001,8 @@ private static String executePickerRace(JSONObject body) throws IOException {
                 }
                 Log.i(TAG, "HT_AI 点译竞速胜出：API=" + result.endpoint.slot
                         + " model=" + result.endpoint.model);
+                diag("竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model);
                 return result.content;
             }
             if (result.content != null && !isUsablePickerRaceResult(result.content)) {
@@ -3001,6 +3020,7 @@ private static String executePickerRace(JSONObject body) throws IOException {
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
                     Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
                             + " model=" + result.endpoint.model + " " + result.error.getMessage());
+                    diag("竞速端点失败：API=" + result.endpoint.slot + " " + result.error.getMessage());
                 }
             }
         }

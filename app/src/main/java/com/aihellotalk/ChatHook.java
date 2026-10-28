@@ -3956,6 +3956,7 @@ if (!pbm && newReplyControllerDetected && !isHt6090Detected) {
                     }
                     showApiSwitchHint(layout, index, model, url);
                 });
+                AITranslator.setDiagListener(ChatHook::log);
                 try {
                     if (pbm) {
                         String answer;

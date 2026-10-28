@@ -2898,13 +2898,17 @@ private static class RaceResult {
     }
 }
 
-private static final Map<Integer, Long> slotLatencyMs = new ConcurrentHashMap<>();
+private static final Map<String, Long> endpointLatencyMs = new ConcurrentHashMap<>();
+
+private static String latencyKey(ApiEndpoint ep) {
+    return ep.slot + "|" + ep.model;
+}
 
 public static int getPickerRaceDelayMs() {
-    int v = readConfigInt("picker_race_delay_ms", 6000);
-    if (v < 0) v = 0;
-    if (v > 60000) v = 60000;
-    return v;
+    int sec = readConfigInt("picker_race_delay_sec", 0);
+    if (sec < 0) sec = 0;
+    if (sec > 30) sec = 30;
+    return sec * 1000;
 }
 
 private static void submitRacer(ExecutorCompletionService<RaceResult> completion,
@@ -2984,8 +2988,8 @@ private static String executePickerRace(JSONObject body) throws IOException {
 
     final int delayMs = getPickerRaceDelayMs();
     Collections.sort(racers, (a, b) -> Long.compare(
-            slotLatencyMs.getOrDefault(a.slot, Long.MAX_VALUE),
-            slotLatencyMs.getOrDefault(b.slot, Long.MAX_VALUE)));
+            endpointLatencyMs.getOrDefault(latencyKey(a), Long.MAX_VALUE),
+            endpointLatencyMs.getOrDefault(latencyKey(b), Long.MAX_VALUE)));
 
     diag("竞速启动，参与API数量=" + racers.size()
             + (delayMs > 0 ? "，延迟追加=" + delayMs + "ms" : "，全部同发"));
@@ -3050,7 +3054,7 @@ private static String executePickerRace(JSONObject body) throws IOException {
                     && won.compareAndSet(false, true)) {
                 lastUsedEndpoint = result.endpoint;
                 activePickerSlot = result.endpoint.slot;
-                slotLatencyMs.put(result.endpoint.slot, result.elapsedMs);
+                endpointLatencyMs.put(latencyKey(result.endpoint), result.elapsedMs);
                 if (apiSwitchListener != null) {
                     apiSwitchListener.onApiSwitched(result.endpoint.slot,
                             result.endpoint.model, result.endpoint.url);

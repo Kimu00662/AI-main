@@ -234,9 +234,9 @@ public class SettingsActivity extends Activity {
         raceRow.addView(cbPickerRace);
         advContentLayout.addView(raceRow);
 
-        advContentLayout.addView(lab("竞速延迟追加 (毫秒，0=全部同时发):"));
-        etRaceDelay = edit(prefs.getString("picker_race_delay_ms", "6000"));
-        etRaceDelay.setHint("6000=先发最快的一个，6秒无结果再发其余；越小越快但越费额度");
+        advContentLayout.addView(lab("竞速延迟追加 (秒，0~30，0=全部同时发):"));
+        etRaceDelay = edit(prefs.getString("picker_race_delay_sec", "0"));
+        etRaceDelay.setHint("0=全部同时发；8=先发最快的一个，8秒无结果再发其余");
         advContentLayout.addView(etRaceDelay);
 
         advContentLayout.addView(lab("最大输出长度 (Max Tokens):"));
@@ -1365,8 +1365,8 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putBoolean("picker_api_race", cbPickerRace.isChecked());
         String raceDelayStr = etRaceDelay.getText().toString().trim();
-        if (raceDelayStr.isEmpty()) raceDelayStr = "6000";
-        editor.putString("picker_race_delay_ms", raceDelayStr);
+        if (raceDelayStr.isEmpty()) raceDelayStr = "0";
+        editor.putString("picker_race_delay_sec", raceDelayStr);
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("request_timeout", reqTimeoutStr);
         editor.putString("receive_timeout", recvTimeoutStr);
@@ -1581,7 +1581,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "picker_api_race=" + prefs.getBoolean("picker_api_race", false) + "\n"
-+ "picker_race_delay_ms=" + prefs.getString("picker_race_delay_ms", "6000") + "\n"
++ "picker_race_delay_sec=" + prefs.getString("picker_race_delay_sec", "0") + "\n"
 + extraApiLines
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";

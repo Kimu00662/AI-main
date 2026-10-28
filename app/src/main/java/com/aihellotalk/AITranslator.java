@@ -126,6 +126,7 @@ public class AITranslator {
             "^(?:\u7248\u672c\\s*\\d*|[Oo]ption\\s*\\d*|\u9009\u9879\\s*\\d*|\\d{1,2}\\s*[.\u3001)\uff09:\uff1a]|[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u2460-\u2473]+\\s*[.\u3001)\uff09:\uff1a]?)\\s*");
 
     private static final int MAX_TOTAL_BASE64_CHARS = 900_000;
+    private static final int MAX_API_SLOTS = 15;
 // ===== ★ 多API智能輪換系統 =====
 private static class ApiEndpoint {
     final int slot;
@@ -218,7 +219,6 @@ private static volatile boolean emergencyStop = false;
 private static volatile int activePickerSlot = -1;
 private static volatile int skipNextPickerSlot = -1;
 private static final ThreadLocal<String> callSource = new ThreadLocal<>();
-private static final ThreadLocal<Boolean> pickerTranslationRequest = new ThreadLocal<>();
 
 public static void setCallSource(String src) {
     callSource.set(src);
@@ -668,7 +668,7 @@ public static boolean readConfigBoolean(String key, boolean defaultVal) {
 
 private static String rotationConfigFingerprint() {
     StringBuilder raw = new StringBuilder();
-    for (int i = 1; i <= 8; i++) {
+    for (int i = 1; i <= MAX_API_SLOTS; i++) {
         String suffix = (i == 1) ? "" : ("_" + i);
         raw.append(i).append('|')
                 .append(readConfigValue("api_key" + suffix)).append('|')
@@ -769,7 +769,7 @@ private static synchronized void loadEndpoints() {
     slotModelsUsed.clear();
     slotModelsFailed.clear();
     slotModelCursor.clear();
-    for (int i = 1; i <= 8; i++) {
+    for (int i = 1; i <= MAX_API_SLOTS; i++) {
         String suffix = (i == 1) ? "" : ("_" + i);
         String key = readConfigValue("api_key" + suffix);
         if (key == null || key.isEmpty()) continue;
@@ -912,7 +912,7 @@ private static synchronized ApiEndpoint getNextEndpoint(boolean isReceive) {
             if (reverseTranslateClient != null) reverseTranslateClient.dispatcher().cancelAll();
             // 4. 踩死记忆提炼通道刹车
             if (distillClient != null) distillClient.dispatcher().cancelAll();
-            // 5. 遍历踩死 8 个备用轮换 API 的所有通道刹车
+            // 5. 遍历踩死所有备用轮换 API 的所有通道刹车
             for (ApiEndpoint ep : endpoints) {
                 if (ep.client != null) ep.client.dispatcher().cancelAll();
             }
@@ -2712,18 +2712,16 @@ if (!hasContext) {
 scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
             messages.put(createMessageObj("user", scriptBuilder.toString()));
 
-            pickerTranslationRequest.set(Boolean.TRUE);
+            Log.i(TAG, "HT_AI 点译模式: "
+                    + (readConfigBoolean("picker_api_race", false) ? "竞速" : "普通")
+                    + (retry ? " (换一批)" : " (首次)"));
             try {
-                try {
-                    return callChatMessages(messages, getMaxTokens());
-                } catch (IOException e) {
-                    if (e.getMessage() != null && e.getMessage().contains("400")) {
-                        return fallbackToPureTextRequest(messages);
-                    }
-                    throw e;
+                return callChatMessages(messages, getMaxTokens(), false, true);
+            } catch (IOException e) {
+                if (e.getMessage() != null && e.getMessage().contains("400")) {
+                    return fallbackToPureTextRequest(messages, false, true);
                 }
-            } finally {
-                pickerTranslationRequest.remove();
+                throw e;
             }
         } catch (JSONException e) {
             throw new IOException("构建Messages失败");
@@ -2743,6 +2741,11 @@ scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
     }
 
     private static String fallbackToPureTextRequest(JSONArray originalMessages, boolean isReceive) throws IOException {
+        return fallbackToPureTextRequest(originalMessages, isReceive, false);
+    }
+
+    private static String fallbackToPureTextRequest(JSONArray originalMessages, boolean isReceive,
+                                                    boolean raceEligible) throws IOException {
         try {
             JSONArray cleanMessages = new JSONArray();
             for (int i = 0; i < originalMessages.length(); i++) {
@@ -2761,7 +2764,7 @@ scriptBuilder.append("\n<translate>\n").append(text).append("\n</translate>");
                 } else { cleanMsg.put("content", contentObj.toString()); }
                 cleanMessages.put(cleanMsg);
             }
-            return callChatMessages(cleanMessages, isReceive);
+            return callChatMessages(cleanMessages, isReceive, raceEligible);
         } catch (JSONException e) { throw new IOException("降级解析失败"); }
     }
 
@@ -2810,6 +2813,11 @@ private static String callChatMessages(JSONArray messages, boolean isReceive,
 }
 
 private static String callChatMessages(JSONArray messages, int maxTokens, boolean isReceive) throws IOException {
+    return callChatMessages(messages, maxTokens, isReceive, false);
+}
+
+private static String callChatMessages(JSONArray messages, int maxTokens, boolean isReceive,
+                                       boolean raceEligible) throws IOException {
 if (endpoints.isEmpty()) throw new IOException("Key未配置");
 try {
     JSONObject body = new JSONObject();
@@ -2817,7 +2825,7 @@ try {
     body.put("max_tokens", maxTokens);
     body.put("temperature", getTemperature());
     body.put("messages", messages);
-        return executeRequest(body, isReceive);
+        return executeRequest(body, isReceive, raceEligible);
     } catch (JSONException e) {
         throw new IOException("构建失败");
     }
@@ -2828,7 +2836,11 @@ try {
 }
 
 private static String executeRequest(JSONObject body, boolean isReceive) throws IOException {
-    if (!isReceive && Boolean.TRUE.equals(pickerTranslationRequest.get())
+    return executeRequest(body, isReceive, false);
+}
+
+private static String executeRequest(JSONObject body, boolean isReceive, boolean raceEligible) throws IOException {
+    if (!isReceive && raceEligible
             && readConfigBoolean("picker_api_race", false)) {
         return executePickerRace(body);
     }

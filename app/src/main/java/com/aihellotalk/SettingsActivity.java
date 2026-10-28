@@ -67,6 +67,13 @@ public class SettingsActivity extends Activity {
     private android.widget.Spinner spinnerDir7, spinnerReasoning7;
     private EditText etKey8, etUrl8, etModel8, etWeight8, etAlias8;
     private android.widget.Spinner spinnerDir8, spinnerReasoning8;
+    private final Map<Integer, EditText> xKey = new HashMap<>();
+    private final Map<Integer, EditText> xUrl = new HashMap<>();
+    private final Map<Integer, EditText> xModel = new HashMap<>();
+    private final Map<Integer, EditText> xWeight = new HashMap<>();
+    private final Map<Integer, EditText> xAlias = new HashMap<>();
+    private final Map<Integer, android.widget.Spinner> xDir = new HashMap<>();
+    private final Map<Integer, android.widget.Spinner> xReasoning = new HashMap<>();
     
     private android.widget.Switch swHideRead, swHideTyping, swBlockSayHi, swInvisibleVisit, swVisitLog;
     private EditText etSearchPrompt;
@@ -248,7 +255,7 @@ public class SettingsActivity extends Activity {
         LinearLayout apiHeaderLayout = createHeaderLayout();
         TextView apiHeaderTitle = new TextView(this);
         boolean isApiExpanded = false;
-        styleHeaderTitle(apiHeaderTitle, isApiExpanded ? "▼ 🔄 多API智能密钥配置（最多8個） (点击折叠)" : "▶ 🔄 多API智能密钥配置（最多8個） (点击展开)");
+        styleHeaderTitle(apiHeaderTitle, isApiExpanded ? "▼ 🔄 多API智能密钥配置（最多15個） (点击折叠)" : "▶ 🔄 多API智能密钥配置（最多15個） (点击展开)");
         apiHeaderLayout.addView(apiHeaderTitle);
         ll.addView(apiHeaderLayout);
 
@@ -402,6 +409,10 @@ public class SettingsActivity extends Activity {
         apiContentLayout.addView(lab("调用权重 8:")); etWeight8 = edit(prefs.getString("api_weight_8", "3")); apiContentLayout.addView(etWeight8);
         apiContentLayout.addView(lab("翻译方向 8:")); spinnerDir8 = new android.widget.Spinner(this); android.widget.ArrayAdapter<String> dirAdapter8 = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_item, dirs); dirAdapter8.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item); spinnerDir8.setAdapter(dirAdapter8); spinnerDir8.setSelection(prefs.getInt("api_direction_8", 0)); spinnerDir8.setEnabled(false); apiContentLayout.addView(spinnerDir8);
         apiContentLayout.addView(lab("思考模式 8:")); spinnerReasoning8 = new android.widget.Spinner(this); android.widget.ArrayAdapter<String> effAdapter8 = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_item, efforts2); effAdapter8.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item); spinnerReasoning8.setAdapter(effAdapter8); String savedEff8 = prefs.getString("reasoning_effort_8", "default"); spinnerReasoning8.setSelection("low".equals(savedEff8) ? 1 : ("medium".equals(savedEff8) ? 2 : ("high".equals(savedEff8) ? 3 : 0))); spinnerReasoning8.setEnabled(false); apiContentLayout.addView(spinnerReasoning8);
+
+        for (int i = 9; i <= 15; i++) {
+            addExtraApiSlot(i, apiContentLayout, prefs, dirs, efforts2, titleBg);
+        }
 
         ll.addView(apiContentLayout);
         // ================= 隐身开关 =================
@@ -1105,6 +1116,144 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         }
     }
 
+    private void addExtraApiSlot(final int idx, LinearLayout parent, SharedPreferences prefs,
+                                 String[] dirs, String[] efforts2, android.graphics.drawable.GradientDrawable titleBg) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setBackground(titleBg);
+        row.setPadding(20, 20, 20, 20);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams lpRow = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lpRow.setMargins(0, 30, 0, 10);
+        row.setLayoutParams(lpRow);
+
+        TextView title = new TextView(this);
+        title.setText("🔵 备用 API " + idx + " | ");
+        title.setTextColor(Color.parseColor("#2563EB"));
+        title.setTextSize(15f);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        row.addView(title);
+
+        EditText alias = new EditText(this);
+        alias.setText(prefs.getString("api_alias_" + idx, ""));
+        alias.setHint("点右侧解锁");
+        alias.setHintTextColor(Color.parseColor("#802563EB"));
+        alias.setTextColor(Color.parseColor("#2563EB"));
+        alias.setTextSize(14f);
+        alias.setTypeface(null, android.graphics.Typeface.BOLD);
+        alias.setBackgroundColor(Color.TRANSPARENT);
+        alias.setEnabled(false);
+        alias.setPadding(0, 0, 0, 0);
+        alias.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(alias);
+
+        final android.widget.Spinner dirSpinner = new android.widget.Spinner(this);
+        final android.widget.Spinner reasoningSpinner = new android.widget.Spinner(this);
+
+        Button unlock = new Button(this);
+        unlock.setText("🔓解锁");
+        unlock.setTextSize(12f);
+        unlock.setBackgroundColor(Color.TRANSPARENT);
+        unlock.setPadding(0, 0, 0, 0);
+        unlock.setOnClickListener(v -> {
+            alias.setEnabled(true);
+            alias.setFocusableInTouchMode(true);
+            alias.requestFocus();
+            dirSpinner.setEnabled(true);
+            reasoningSpinner.setEnabled(true);
+            Toast.makeText(this, "API " + idx + " 已解锁", Toast.LENGTH_SHORT).show();
+            unlock.setText("已解");
+            unlock.setEnabled(false);
+        });
+        row.addView(unlock);
+        parent.addView(row);
+
+        parent.addView(lab("API Key " + idx + ":"));
+        EditText key = edit(prefs.getString("api_key_" + idx, ""));
+        parent.addView(key);
+
+        parent.addView(lab("API URL " + idx + ":"));
+        EditText url = edit(prefs.getString("api_url_" + idx, ""));
+        parent.addView(url);
+
+        parent.addView(lab("模型 " + idx + ":"));
+        EditText model = edit(prefs.getString("model_" + idx, ""));
+        parent.addView(model);
+
+        LinearLayout rowBtn = new LinearLayout(this);
+        rowBtn.setOrientation(LinearLayout.HORIZONTAL);
+        Button fetch = btn("获取模型");
+        fetch.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        fetch.setOnClickListener(v -> fetchModelsForApi(key.getText().toString().trim(),
+                url.getText().toString().trim(), "_" + idx, model));
+        rowBtn.addView(fetch);
+        Button test = btn("测试通道");
+        test.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        test.setOnClickListener(v -> testSingleApi(key.getText().toString().trim(),
+                url.getText().toString().trim(), model.getText().toString().trim()));
+        rowBtn.addView(test);
+        parent.addView(rowBtn);
+
+        parent.addView(lab("调用权重 " + idx + ":"));
+        EditText weight = edit(prefs.getString("api_weight_" + idx, "3"));
+        parent.addView(weight);
+
+        parent.addView(lab("翻译方向 " + idx + ":"));
+        android.widget.ArrayAdapter<String> dirAdapter = new android.widget.ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, dirs);
+        dirAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dirSpinner.setAdapter(dirAdapter);
+        dirSpinner.setSelection(prefs.getInt("api_direction_" + idx, 0));
+        dirSpinner.setEnabled(false);
+        parent.addView(dirSpinner);
+
+        parent.addView(lab("思考模式 " + idx + ":"));
+        android.widget.ArrayAdapter<String> effAdapter = new android.widget.ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, efforts2);
+        effAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        reasoningSpinner.setAdapter(effAdapter);
+        String savedEff = prefs.getString("reasoning_effort_" + idx, "default");
+        reasoningSpinner.setSelection("low".equals(savedEff) ? 1
+                : ("medium".equals(savedEff) ? 2 : ("high".equals(savedEff) ? 3 : 0)));
+        reasoningSpinner.setEnabled(false);
+        parent.addView(reasoningSpinner);
+
+        xKey.put(idx, key);
+        xUrl.put(idx, url);
+        xModel.put(idx, model);
+        xWeight.put(idx, weight);
+        xAlias.put(idx, alias);
+        xDir.put(idx, dirSpinner);
+        xReasoning.put(idx, reasoningSpinner);
+    }
+
+    private String extraApiConfigLines() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 9; i <= 15; i++) {
+            EditText k = xKey.get(i);
+            if (k == null) continue;
+            String m = xModel.get(i).getText().toString().trim();
+            sb.append("api_key_").append(i).append('=')
+                    .append(k.getText().toString().trim()).append('\n');
+            sb.append("api_url_").append(i).append('=')
+                    .append(xUrl.get(i).getText().toString().trim()).append('\n');
+            sb.append("model_").append(i).append('=').append(m).append('\n');
+            sb.append("model_list_").append(i).append('=')
+                    .append(prefs.getString("model_list_" + i, m)).append('\n');
+            sb.append("api_weight_").append(i).append('=')
+                    .append(xWeight.get(i).getText().toString().trim()).append('\n');
+            sb.append("api_direction_").append(i).append('=')
+                    .append(xDir.get(i).getSelectedItemPosition()).append('\n');
+            sb.append("reasoning_effort_").append(i).append('=')
+                    .append(xReasoning.get(i).getSelectedItemPosition() == 1 ? "low"
+                            : (xReasoning.get(i).getSelectedItemPosition() == 2 ? "medium"
+                            : (xReasoning.get(i).getSelectedItemPosition() == 3 ? "high" : "default")))
+                    .append('\n');
+        }
+        return sb.toString();
+    }
+
     private String configValue(String config, String key) {
         if (config == null) return null;
         for (String line : config.split("\\n", -1)) {
@@ -1117,7 +1266,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         if (config == null || config.trim().isEmpty()) {
             throw new IllegalStateException("配置文件写入失败");
         }
-        for (int i = 1; i <= 8; i++) {
+        for (int i = 1; i <= 15; i++) {
             String suffix = i == 1 ? "" : "_" + i;
             String expectedKey = prefs.getString("api_key" + suffix, "").trim();
             String expectedUrl = prefs.getString("api_url" + suffix, "").trim();
@@ -1304,6 +1453,21 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putInt("api_direction_8", spinnerDir8.getSelectedItemPosition());
         
         String[] effortValues = {"default", "low", "medium", "high"};
+        for (int i = 9; i <= 15; i++) {
+            EditText k = xKey.get(i);
+            if (k == null) continue;
+            editor.putString("api_alias_" + i, xAlias.get(i).getText().toString().trim());
+            editor.putString("api_key_" + i, k.getText().toString().trim());
+            String u = xUrl.get(i).getText().toString().trim();
+            editor.putString("api_url_" + i, u);
+            String m = xModel.get(i).getText().toString().trim();
+            editor.putString("model_" + i, m);
+            syncManualModelList(editor, "_" + i, m, k.getText().toString().trim(), u);
+            editor.putString("api_weight_" + i, xWeight.get(i).getText().toString().trim());
+            editor.putInt("api_direction_" + i, xDir.get(i).getSelectedItemPosition());
+            editor.putString("reasoning_effort_" + i,
+                    effortValues[xReasoning.get(i).getSelectedItemPosition()]);
+        }
         editor.putString("reasoning_effort_2", effortValues[spinnerReasoning2.getSelectedItemPosition()]);
         editor.putString("reasoning_effort_3", effortValues[spinnerReasoning3.getSelectedItemPosition()]);
         editor.putString("reasoning_effort_4", effortValues[spinnerReasoning4.getSelectedItemPosition()]);
@@ -1407,6 +1571,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "live_context_max=" + finalLiveContextMaxStr + "\n"
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "picker_api_race=" + prefs.getBoolean("picker_api_race", false) + "\n"
++ extraApiConfigLines()
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";
                 runRoot(cfg);
@@ -1594,6 +1759,16 @@ private void testTranslate() {
 
     String k8 = etKey8.getText().toString().trim();
     if (!k8.isEmpty()) slots.add(new ApiSlot(8, etAlias8.getText().toString().trim(), k8, etUrl8.getText().toString().trim(), etModel8.getText().toString().trim()));
+
+    for (int i = 9; i <= 15; i++) {
+        EditText ek = xKey.get(i);
+        if (ek == null) continue;
+        String ki = ek.getText().toString().trim();
+        if (ki.isEmpty()) continue;
+        slots.add(new ApiSlot(i, xAlias.get(i).getText().toString().trim(), ki,
+                xUrl.get(i).getText().toString().trim(),
+                xModel.get(i).getText().toString().trim()));
+    }
 
     if (slots.isEmpty()) {
         toast("请至少在任意一个 API 配置中填写 Key");

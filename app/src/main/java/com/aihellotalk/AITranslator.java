@@ -40,6 +40,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -3071,6 +3072,12 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
     int firstBatchSize = (totalCount + 1) / 2;  // 向上取整
     int secondBatchSize = totalCount - firstBatchSize;
 
+    synchronized (AITranslator.class) {
+        if (raceRotateGroupStart < 0 || raceRotateGroupStart >= totalCount) {
+            raceRotateGroupStart = ((raceRotateGroupStart % totalCount) + totalCount) % totalCount;
+        }
+    }
+
     // 按轮换起点重排 racers
     List<ApiEndpoint> rotatedRacers = new ArrayList<>();
     for (int i = 0; i < totalCount; i++) {
@@ -3177,6 +3184,8 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
                         otherFailureCount++;
                     }
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
+                    Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
+                            + " model=" + result.endpoint.model + " " + result.error.getMessage());
                     diag("竞速端点失败：API=" + result.endpoint.slot + " " + result.error.getMessage());
                 }
             }

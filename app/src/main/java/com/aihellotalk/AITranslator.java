@@ -220,6 +220,7 @@ private static final Map<Integer, Set<String>> slotModelsFailed = new Concurrent
 private static final Map<Integer, Integer> slotModelCursor = new ConcurrentHashMap<>();
 private static volatile int roundRobinIndex = 0;
 private static volatile int persistedNextSlotId = 1;
+private static volatile int raceRotateGroupStart = 0; // 竞速分批轮换起点
 private static volatile String rotationConfigFingerprint = "";
 private static volatile long apiConfigModified = -1L;
 private static volatile long apiConfigLength = -1L;
@@ -707,17 +708,20 @@ private static String rotationConfigFingerprint() {
 private static void restoreRotationState(String fingerprint) {
     rotationConfigFingerprint = fingerprint;
     persistedNextSlotId = 1;
+    raceRotateGroupStart = 0;
     if (rotationStateFile == null || !rotationStateFile.exists()) return;
     try {
         BufferedReader r = new BufferedReader(new FileReader(rotationStateFile));
         String line;
         String savedFingerprint = null;
         int nextSlot = -1;
+        int groupStart = 0;
         Map<Integer, Integer> savedCounts = new ConcurrentHashMap<>();
         Map<Integer, Integer> savedCursors = new ConcurrentHashMap<>();
         while ((line = r.readLine()) != null) {
             if (line.startsWith("fingerprint=")) savedFingerprint = line.substring(12).trim();
             else if (line.startsWith("next_slot=")) nextSlot = Integer.parseInt(line.substring(10).trim());
+            else if (line.startsWith("race_group_start=")) groupStart = Integer.parseInt(line.substring(17).trim());
             else if (line.startsWith("counts=")) {
                 for (String item : line.substring(7).split(",")) {
                     String[] pair = item.split(":", 2);
@@ -733,10 +737,12 @@ private static void restoreRotationState(String fingerprint) {
         r.close();
         if (!fingerprint.equals(savedFingerprint)) return;
         persistedNextSlotId = nextSlot > 0 ? nextSlot : 1;
+        raceRotateGroupStart = groupStart;
         slotCallCounts.putAll(savedCounts);
         slotModelCursor.putAll(savedCursors);
     } catch (Throwable ignored) {
         persistedNextSlotId = 1;
+        raceRotateGroupStart = 0;
         slotCallCounts.clear();
         slotModelCursor.clear();
     }
@@ -767,6 +773,8 @@ private static void saveRotationState(int nextSlotId) {
             w.write(e.getKey() + ":" + e.getValue());
             first = false;
         }
+        w.newLine();
+        w.write("race_group_start=" + raceRotateGroupStart);
         w.newLine();
         w.close();
         if (!temp.renameTo(rotationStateFile)) {
@@ -2944,6 +2952,18 @@ private static String executePickerRace(JSONObject body) throws IOException {
         throw new IOException("所有可发送 API 均在冷却中，请稍后重试");
     }
 
+    // 检查是否启用分批轮换
+    boolean rotateEnabled = readConfigBoolean("picker_race_rotate", false);
+    if (!rotateEnabled || racers.size() <= 2) {
+        // 关闭轮换或可用数<=2，全部同时发送
+        return executePickerRaceAllAtOnce(body, racers);
+    } else {
+        // 启用轮换且>=3个，分批发送
+        return executePickerRaceWithRotation(body, racers);
+    }
+}
+
+private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoint> racers) throws IOException {
     Log.i(TAG, "HT_AI 点译竞速启动，API 数量=" + racers.size());
     diag("竞速启动，参与API数量=" + racers.size());
     ExecutorService pool = Executors.newFixedThreadPool(racers.size());
@@ -3038,6 +3058,179 @@ private static String executePickerRace(JSONObject body) throws IOException {
     if (emergencyStop) throw new IOException("USER_STOPPED");
     if (timeoutCount == racers.size()) {
         throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时（每个上限 "
+                + getRequestTimeoutSeconds() + " 秒）");
+    }
+    throw new IOException("点译竞速全部失败：超时 " + timeoutCount
+            + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
+            + (lastError != null && lastError.getMessage() != null
+                    ? "。最后错误：" + lastError.getMessage() : ""));
+}
+
+private static String executePickerRaceWithRotation(JSONObject body, List<ApiEndpoint> racers) throws IOException {
+    int totalCount = racers.size();
+    int firstBatchSize = (totalCount + 1) / 2;  // 向上取整
+    int secondBatchSize = totalCount - firstBatchSize;
+
+    // 按轮换起点重排 racers
+    List<ApiEndpoint> rotatedRacers = new ArrayList<>();
+    for (int i = 0; i < totalCount; i++) {
+        rotatedRacers.add(racers.get((raceRotateGroupStart + i) % totalCount));
+    }
+
+    // 第一批
+    List<ApiEndpoint> firstBatch = rotatedRacers.subList(0, firstBatchSize);
+    Log.i(TAG, "HT_AI 点译竞速分批启动：本次组=" + (raceRotateGroupStart / firstBatchSize % 2 == 0 ? "A" : "B")
+            + " 第一批=" + firstBatchSize + " 总数=" + totalCount);
+    diag("竞速分批启动：本次组=" + (raceRotateGroupStart / firstBatchSize % 2 == 0 ? "A" : "B")
+            + "，第一批=" + firstBatchSize + "，总数=" + totalCount);
+
+    ExecutorService pool = Executors.newFixedThreadPool(totalCount);
+    ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
+    List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
+    AtomicBoolean won = new AtomicBoolean(false);
+    List<Future<RaceResult>> futures = new ArrayList<>();
+    AtomicInteger submitted = new AtomicInteger(0);
+
+    // 提交第一批
+    for (ApiEndpoint ep : firstBatch) {
+        final ApiEndpoint racer = ep;
+        futures.add(completion.submit(() -> {
+            try {
+                JSONObject requestBody = new JSONObject(body.toString());
+                requestBody.put("model", racer.model);
+                if (!"default".equals(racer.reasoningEffort)) {
+                    requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
+                } else {
+                    requestBody.remove("reasoning_effort");
+                }
+                String content = executeRaceRequest(racer, requestBody, calls, won);
+                return new RaceResult(racer, content, null);
+            } catch (IOException e) {
+                return new RaceResult(racer, null, e);
+            } catch (JSONException e) {
+                return new RaceResult(racer, null, new IOException("竞速请求体构造失败", e));
+            }
+        }));
+    }
+    submitted.set(firstBatchSize);
+
+    IOException lastError = null;
+    int timeoutCount = 0;
+    int invalidCount = 0;
+    int otherFailureCount = 0;
+    int completed = 0;
+    boolean secondBatchSubmitted = false;
+
+    try {
+        while (completed < submitted.get()) {
+            if (emergencyStop) break;
+
+            RaceResult result;
+            try {
+                result = completion.take().get();
+            } catch (Exception e) {
+                lastError = new IOException("竞速任务异常", e);
+                completed++;
+                continue;
+            }
+            completed++;
+
+            // 检查是否胜出
+            if (result.content != null && isUsablePickerRaceResult(result.content)
+                    && won.compareAndSet(false, true)) {
+                lastUsedEndpoint = result.endpoint;
+                activePickerSlot = result.endpoint.slot;
+                if (apiSwitchListener != null) {
+                    apiSwitchListener.onApiSwitched(result.endpoint.slot,
+                            result.endpoint.model, result.endpoint.url);
+                }
+                synchronized (calls) {
+                    for (Call call : calls) {
+                        if (!call.isCanceled()) call.cancel();
+                    }
+                }
+                // 更新轮换起点
+                synchronized (AITranslator.class) {
+                    raceRotateGroupStart = (raceRotateGroupStart + firstBatchSize) % totalCount;
+                    saveRotationState(persistedNextSlotId);
+                }
+                Log.i(TAG, "HT_AI 点译竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model
+                        + (secondBatchSubmitted ? "" : "（首批即中）"));
+                diag("竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model
+                        + (secondBatchSubmitted ? "" : "（首批即中）"));
+                return result.content;
+            }
+
+            // 处理失败
+            if (result.content != null && !isUsablePickerRaceResult(result.content)) {
+                invalidCount++;
+                result = new RaceResult(result.endpoint, null,
+                        new IOException("竞速返回内容无法解析为点译选项"));
+            }
+            if (result.error != null) {
+                lastError = result.error;
+                if (!isCanceledFailure(result.error) && !emergencyStop) {
+                    if (isTimeoutFailure(result.error)) timeoutCount++;
+                    else if (result.content == null && !"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
+                        otherFailureCount++;
+                    }
+                    result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
+                    diag("竞速端点失败：API=" + result.endpoint.slot + " " + result.error.getMessage());
+                }
+            }
+
+            // 第一批全部完成且无胜出，提交第二批
+            if (!secondBatchSubmitted && completed >= firstBatchSize && !won.get()) {
+                if (secondBatchSize > 0) {
+                    List<ApiEndpoint> secondBatch = rotatedRacers.subList(firstBatchSize, totalCount);
+                    diag("首批全部失败，追加第二批=" + secondBatchSize);
+                    for (ApiEndpoint ep : secondBatch) {
+                        final ApiEndpoint racer = ep;
+                        futures.add(completion.submit(() -> {
+                            try {
+                                JSONObject requestBody = new JSONObject(body.toString());
+                                requestBody.put("model", racer.model);
+                                if (!"default".equals(racer.reasoningEffort)) {
+                                    requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
+                                } else {
+                                    requestBody.remove("reasoning_effort");
+                                }
+                                String content = executeRaceRequest(racer, requestBody, calls, won);
+                                return new RaceResult(racer, content, null);
+                            } catch (IOException e) {
+                                return new RaceResult(racer, null, e);
+                            } catch (JSONException e) {
+                                return new RaceResult(racer, null, new IOException("竞速请求体构造失败", e));
+                            }
+                        }));
+                    }
+                    submitted.addAndGet(secondBatchSize);
+                    secondBatchSubmitted = true;
+                }
+            }
+        }
+    } finally {
+        won.set(true);
+        synchronized (calls) {
+            for (Call call : calls) {
+                if (!call.isCanceled()) call.cancel();
+            }
+        }
+        for (Future<RaceResult> future : futures) future.cancel(true);
+        pool.shutdownNow();
+    }
+
+    // 轮换起点后移
+    synchronized (AITranslator.class) {
+        raceRotateGroupStart = (raceRotateGroupStart + firstBatchSize) % totalCount;
+        saveRotationState(persistedNextSlotId);
+    }
+
+    if (emergencyStop) throw new IOException("USER_STOPPED");
+    if (timeoutCount == totalCount) {
+        throw new IOException("所有 " + totalCount + " 个点译 API 均已超时（每个上限 "
                 + getRequestTimeoutSeconds() + " 秒）");
     }
     throw new IOException("点译竞速全部失败：超时 " + timeoutCount

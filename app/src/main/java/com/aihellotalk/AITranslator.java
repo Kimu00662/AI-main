@@ -2953,15 +2953,22 @@ private static String executePickerRace(JSONObject body) throws IOException {
         throw new IOException("所有可发送 API 均在冷却中，请稍后重试");
     }
 
-    // 检查是否启用分批轮换
+    // 检查竞速子模式；两个开关同时为 true 时保守地优先分批模式
     boolean rotateEnabled = readConfigBoolean("picker_race_rotate", false);
-    if (!rotateEnabled || racers.size() <= 2) {
-        // 关闭轮换或可用数<=2，全部同时发送
-        return executePickerRaceAllAtOnce(body, racers);
-    } else {
+    boolean streamEnabled = readConfigBoolean("picker_race_stream", false);
+    if (rotateEnabled && streamEnabled) {
+        Log.w(TAG, "HT_AI 竞速配置冲突：分批与流式同时开启，优先使用分批模式");
+        streamEnabled = false;
+    }
+    if (streamEnabled) {
+        return executePickerRaceStreaming(body, racers);
+    }
+    if (rotateEnabled && racers.size() > 2) {
         // 启用轮换且>=3个，分批发送
         return executePickerRaceWithRotation(body, racers);
     }
+    // 关闭轮换或可用数<=2，全部同时发送
+    return executePickerRaceAllAtOnce(body, racers);
 }
 
 private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoint> racers) throws IOException {
@@ -3246,6 +3253,221 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
             + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
             + (lastError != null && lastError.getMessage() != null
                     ? "。最后错误：" + lastError.getMessage() : ""));
+}
+
+private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoint> racers) throws IOException {
+    Log.i(TAG, "HT_AI 点译流式竞速启动，API 数量=" + racers.size());
+    diag("点译流式竞速启动，参与API数量=" + racers.size());
+    ExecutorService pool = Executors.newFixedThreadPool(racers.size());
+    ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
+    List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
+    AtomicBoolean won = new AtomicBoolean(false);
+    List<Future<RaceResult>> futures = new ArrayList<>();
+
+    for (ApiEndpoint ep : racers) {
+        final ApiEndpoint racer = ep;
+        futures.add(completion.submit(() -> {
+            try {
+                JSONObject requestBody = new JSONObject(body.toString());
+                requestBody.put("model", racer.model);
+                requestBody.put("stream", true);
+                if (!"default".equals(racer.reasoningEffort)) {
+                    requestBody.put("reasoning_effort", normalizeReasoningEffort(racer.reasoningEffort));
+                } else {
+                    requestBody.remove("reasoning_effort");
+                }
+                String content = executeRaceStreamingRequest(racer, requestBody, calls, won);
+                return new RaceResult(racer, content, null);
+            } catch (IOException e) {
+                return new RaceResult(racer, null, e);
+            } catch (JSONException e) {
+                return new RaceResult(racer, null, new IOException("流式竞速请求体构造失败", e));
+            }
+        }));
+    }
+
+    IOException lastError = null;
+    int timeoutCount = 0;
+    int invalidCount = 0;
+    int otherFailureCount = 0;
+    try {
+        for (int i = 0; i < racers.size(); i++) {
+            RaceResult result;
+            try {
+                result = completion.take().get();
+            } catch (Exception e) {
+                lastError = new IOException("流式竞速任务异常", e);
+                continue;
+            }
+            if (result.content != null && isUsablePickerRaceResult(result.content)
+                    && won.compareAndSet(false, true)) {
+                lastUsedEndpoint = result.endpoint;
+                activePickerSlot = result.endpoint.slot;
+                if (apiSwitchListener != null) {
+                    apiSwitchListener.onApiSwitched(result.endpoint.slot,
+                            result.endpoint.model, result.endpoint.url);
+                }
+                synchronized (calls) {
+                    for (Call call : calls) {
+                        if (!call.isCanceled()) call.cancel();
+                    }
+                }
+                Log.i(TAG, "HT_AI 点译流式竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model);
+                diag("点译流式竞速胜出：API=" + result.endpoint.slot
+                        + " model=" + result.endpoint.model);
+                return result.content;
+            }
+            if (result.content != null && !isUsablePickerRaceResult(result.content)) {
+                invalidCount++;
+                result = new RaceResult(result.endpoint, null,
+                        new IOException("流式竞速返回内容无法解析为点译选项"));
+            }
+            if (result.error != null) {
+                lastError = result.error;
+                if (!isCanceledFailure(result.error) && !emergencyStop) {
+                    if (isTimeoutFailure(result.error)) timeoutCount++;
+                    else if (result.content == null
+                            && !"流式竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
+                        otherFailureCount++;
+                    }
+                    result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
+                    Log.w(TAG, "HT_AI 流式竞速端点失败：API=" + result.endpoint.slot
+                            + " model=" + result.endpoint.model + " " + result.error.getMessage());
+                    diag("流式竞速端点失败：API=" + result.endpoint.slot
+                            + " " + result.error.getMessage());
+                }
+            }
+        }
+    } finally {
+        won.set(true);
+        synchronized (calls) {
+            for (Call call : calls) {
+                if (!call.isCanceled()) call.cancel();
+            }
+        }
+        for (Future<RaceResult> future : futures) future.cancel(true);
+        pool.shutdownNow();
+    }
+
+    if (emergencyStop) throw new IOException("USER_STOPPED");
+    if (timeoutCount == racers.size()) {
+        throw new IOException("所有 " + racers.size() + " 个流式点译 API 均已超时（每个上限 "
+                + getRequestTimeoutSeconds() + " 秒）");
+    }
+    throw new IOException("点译流式竞速全部失败：超时 " + timeoutCount
+            + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
+            + (lastError != null && lastError.getMessage() != null
+                    ? "。最后错误：" + lastError.getMessage() : ""));
+}
+
+private static String executeRaceStreamingRequest(ApiEndpoint ep, JSONObject body,
+                                                  List<Call> calls, AtomicBoolean won) throws IOException {
+    try {
+        return executeRaceStreamingRequestOnce(ep, body, calls, won);
+    } catch (IOException firstError) {
+        if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
+            try {
+                JSONObject fallback = new JSONObject(body.toString());
+                fallback.remove("reasoning_effort");
+                return executeRaceStreamingRequestOnce(ep, fallback, calls, won);
+            } catch (JSONException e) {
+                throw new IOException("流式竞速思考参数降级请求体构造失败", e);
+            }
+        }
+        throw firstError;
+    }
+}
+
+private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject body,
+                                                      List<Call> calls, AtomicBoolean won) throws IOException {
+    if (won.get() || emergencyStop) throw new IOException("Canceled");
+    Request req = new Request.Builder()
+            .url(fixUrl(ep.url))
+            .header("Authorization", "Bearer " + ep.key)
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .post(RequestBody.create(body.toString(), JSON_TYPE))
+            .build();
+    Call call = ep.ensureClient().newCall(req);
+    calls.add(call);
+    if (won.get() || emergencyStop) {
+        call.cancel();
+        throw new IOException("Canceled");
+    }
+    try (Response resp = call.execute()) {
+        if (!resp.isSuccessful()) {
+            String errorBody = resp.body() != null ? resp.body().string() : "";
+            throw new IOException("HTTP " + resp.code() + " " + errorBody);
+        }
+        if (resp.body() == null) throw new IOException("流式响应为空");
+
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(resp.body().byteStream(), Charset.forName("UTF-8")))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (won.get() || emergencyStop) throw new IOException("Canceled");
+                String payload = line.trim();
+                if (payload.isEmpty() || payload.startsWith(":" ) || payload.startsWith("event:")) {
+                    continue;
+                }
+                if (payload.startsWith("data:")) {
+                    payload = payload.substring(5).trim();
+                } else if (!payload.startsWith("{")) {
+                    continue;
+                }
+                if (payload.isEmpty()) continue;
+                if ("[DONE]".equals(payload)) break;
+
+                JSONObject chunk;
+                try {
+                    chunk = new JSONObject(payload);
+                } catch (JSONException e) {
+                    throw new IOException("流式返回 JSON 解析失败：" + payload, e);
+                }
+                JSONObject error = chunk.optJSONObject("error");
+                if (error != null) {
+                    String message = error.optString("message", "流式 API 返回错误");
+                    throw new IOException(message);
+                }
+                JSONArray choices = chunk.optJSONArray("choices");
+                if (choices == null || choices.length() == 0) continue;
+                JSONObject choice = choices.optJSONObject(0);
+                if (choice == null) continue;
+                JSONObject delta = choice.optJSONObject("delta");
+                if (delta != null) {
+                    appendStreamingText(content, delta.opt("content"));
+                    continue;
+                }
+                JSONObject message = choice.optJSONObject("message");
+                if (message != null) {
+                    appendStreamingText(content, message.opt("content"));
+                } else {
+                    appendStreamingText(content, choice.opt("text"));
+                }
+            }
+        }
+        String result = content.toString().trim();
+        if (result.isEmpty()) throw new IOException("流式 API 返回了空数据");
+        return result;
+    }
+}
+
+private static void appendStreamingText(StringBuilder target, Object value) {
+    if (value == null || value == JSONObject.NULL) return;
+    if (value instanceof String) {
+        target.append((String) value);
+    } else if (value instanceof JSONArray) {
+        JSONArray parts = (JSONArray) value;
+        for (int i = 0; i < parts.length(); i++) {
+            Object part = parts.opt(i);
+            if (part instanceof JSONObject) {
+                target.append(((JSONObject) part).optString("text", ""));
+            }
+        }
+    }
 }
 
 private static String executeRaceRequest(ApiEndpoint ep, JSONObject body,

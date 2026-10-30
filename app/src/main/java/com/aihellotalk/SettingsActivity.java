@@ -38,7 +38,7 @@ public class SettingsActivity extends Activity {
     private EditText etKey, etUrl, etModel, etTemperature, etMaxTokens, etMaxChat;
     private EditText etLiveContextMax;
     private EditText etRequestTimeout, etReceiveTimeout;
-    private android.widget.CheckBox cbShowApiSwitchHint, cbPickerRace, cbPickerRaceRotate;
+    private android.widget.CheckBox cbShowApiSwitchHint, cbPickerRace, cbPickerRaceRotate, cbPickerRaceStream;
     private android.widget.Spinner spinnerReasoning;
     private EditText etPromptZH, etPromptEN, etPromptRU, etPromptUK, etPromptKO, etPromptES;
     private EditText etPromptAR, etPromptPT, etPromptFR, etPromptDE, etPromptIT;
@@ -229,7 +229,8 @@ public class SettingsActivity extends Activity {
         raceRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         cbPickerRace = new android.widget.CheckBox(this);
         cbPickerRace.setText("点译 API 竞速（所有可发送 API 同时请求，先返回者胜出）");
-        cbPickerRace.setChecked(prefs.getBoolean("picker_api_race", false));
+        boolean pickerRaceEnabled = prefs.getBoolean("picker_api_race", false);
+        cbPickerRace.setChecked(pickerRaceEnabled);
         raceRow.addView(cbPickerRace);
         advContentLayout.addView(raceRow);
 
@@ -238,13 +239,37 @@ public class SettingsActivity extends Activity {
         raceRotateRow.setPadding(60, 0, 0, 0);
         cbPickerRaceRotate = new android.widget.CheckBox(this);
         cbPickerRaceRotate.setText("竞速分批轮换（每次只发一半，省额度；运气不好会慢几秒）");
-        cbPickerRaceRotate.setChecked(prefs.getBoolean("picker_race_rotate", false));
+        boolean pickerRaceRotateSaved = pickerRaceEnabled && prefs.getBoolean("picker_race_rotate", false);
+        boolean pickerRaceStreamSaved = pickerRaceEnabled && !pickerRaceRotateSaved
+                && prefs.getBoolean("picker_race_stream", false);
+        cbPickerRaceRotate.setChecked(pickerRaceRotateSaved);
         raceRotateRow.addView(cbPickerRaceRotate);
         advContentLayout.addView(raceRotateRow);
-        cbPickerRaceRotate.setEnabled(cbPickerRace.isChecked());
+
+        android.widget.LinearLayout raceStreamRow = new android.widget.LinearLayout(this);
+        raceStreamRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        raceStreamRow.setPadding(60, 0, 0, 0);
+        cbPickerRaceStream = new android.widget.CheckBox(this);
+        cbPickerRaceStream.setText("竞速流式模式（全部发送，后台接收，省尾部额度）");
+        cbPickerRaceStream.setChecked(pickerRaceStreamSaved);
+        raceStreamRow.addView(cbPickerRaceStream);
+        advContentLayout.addView(raceStreamRow);
+
+        cbPickerRaceRotate.setEnabled(pickerRaceEnabled);
+        cbPickerRaceStream.setEnabled(pickerRaceEnabled);
+        cbPickerRaceRotate.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) cbPickerRaceStream.setChecked(false);
+        });
+        cbPickerRaceStream.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) cbPickerRaceRotate.setChecked(false);
+        });
         cbPickerRace.setOnCheckedChangeListener((buttonView, isChecked) -> {
             cbPickerRaceRotate.setEnabled(isChecked);
-            if (!isChecked) cbPickerRaceRotate.setChecked(false);
+            cbPickerRaceStream.setEnabled(isChecked);
+            if (!isChecked) {
+                cbPickerRaceRotate.setChecked(false);
+                cbPickerRaceStream.setChecked(false);
+            }
         });
 
         advContentLayout.addView(lab("最大输出长度 (Max Tokens):"));
@@ -1373,6 +1398,7 @@ setupToggle(stealthHeaderLayout, stealthHeaderTitle, stealthContentLayout, "🕵
         editor.putBoolean("show_api_switch_hint", cbShowApiSwitchHint.isChecked());
         editor.putBoolean("picker_api_race", cbPickerRace.isChecked());
         editor.putBoolean("picker_race_rotate", cbPickerRaceRotate.isChecked());
+        editor.putBoolean("picker_race_stream", cbPickerRaceStream.isChecked());
         editor.putString("max_tokens", maxTokensStr);
         editor.putString("request_timeout", reqTimeoutStr);
         editor.putString("receive_timeout", recvTimeoutStr);
@@ -1588,6 +1614,7 @@ editor.putBoolean("stealth_visit_log", swVisitLog.isChecked());
 + "show_api_switch_hint=" + finalShowApiSwitchHint + "\n"
 + "picker_api_race=" + prefs.getBoolean("picker_api_race", false) + "\n"
 + "picker_race_rotate=" + prefs.getBoolean("picker_race_rotate", false) + "\n"
++ "picker_race_stream=" + prefs.getBoolean("picker_race_stream", false) + "\n"
 + extraApiLines
 + "EOF\n"
 + "mv /data/local/tmp/htai_config.txt.tmp /data/local/tmp/htai_config.txt\n";

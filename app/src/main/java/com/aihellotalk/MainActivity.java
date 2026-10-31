@@ -3,17 +3,10 @@ package com.aihellotalk;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.OpenableColumns;
-import android.util.Base64;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -24,53 +17,28 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends Activity {
 
-    private static final int REQUEST_CODE_PICK_IMAGE = 101;
-    private static final int REQUEST_CODE_PICK_FILE = 102;
-
     private DrawerLayout drawerLayout;
     private LinearLayout messageContainer;
     private ScrollView messageScrollView;
-    private EditText inputBox;
-    private Button sendBtn;
-    private Button attachBtn;
     private LinearLayout drawerContent;
-
-    private LinearLayout imagePreviewBar;
-    private ImageView previewImage;
-    private ImageButton previewCloseBtn;
-    private String pendingImageBase64 = "";
-
-    private Spinner modelSpinner;
-    private List<String> modelList = new ArrayList<>();
 
     private String currentChatId = "";
     private String currentChatName = "";
     private Handler mainHandler;
-
-    private String cachedApiKey = "";
-    private String cachedApiUrl = "";
-    private String cachedModel = "";
-    private SharedPreferences prefs;
-
     private TextView memStatus;
     private volatile boolean claimDialogShowing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        prefs = getSharedPreferences("htai_settings", MODE_PRIVATE);
         mainHandler = new Handler(Looper.getMainLooper());
-
-        loadConfigOnce();
 
         drawerLayout = new DrawerLayout(this);
         LinearLayout mainContent = new LinearLayout(this);
@@ -95,14 +63,6 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
         title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView modelLabel = new TextView(this);
-        modelLabel.setText(cachedModel.isEmpty() ? "未选择" : cachedModel);
-        modelLabel.setTextSize(12f);
-        modelLabel.setTextColor(Color.parseColor("#666666"));
-        modelLabel.setPadding(0, 0, 8, 0);
-        modelLabel.setGravity(Gravity.CENTER_VERTICAL);
-        modelLabel.setTag("modelLabel");
-
         Button rightMenuBtn = new Button(this);
         rightMenuBtn.setText("⋮");
         rightMenuBtn.setTextSize(24f);
@@ -111,7 +71,6 @@ public class MainActivity extends Activity {
 
         topBar.addView(leftMenuBtn);
         topBar.addView(title);
-        topBar.addView(modelLabel);
         topBar.addView(rightMenuBtn);
         mainContent.addView(topBar);
 
@@ -145,103 +104,6 @@ public class MainActivity extends Activity {
         messageScrollView.addView(messageContainer);
         mainContent.addView(messageScrollView);
 
-        imagePreviewBar = new LinearLayout(this);
-        imagePreviewBar.setOrientation(LinearLayout.HORIZONTAL);
-        imagePreviewBar.setPadding(8, 4, 8, 4);
-        imagePreviewBar.setBackgroundColor(Color.parseColor("#EEEEEE"));
-        imagePreviewBar.setVisibility(View.GONE);
-
-        previewImage = new ImageView(this);
-        previewImage.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(56), dpToPx(56)));
-        previewImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        previewImage.setPadding(4, 4, 4, 4);
-
-        TextView previewName = new TextView(this);
-        previewName.setText("已选择图片");
-        previewName.setTextSize(13f);
-        previewName.setTextColor(Color.DKGRAY);
-        previewName.setGravity(Gravity.CENTER_VERTICAL);
-        previewName.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        previewName.setPadding(12, 0, 0, 0);
-        previewName.setTag("previewName");
-
-        previewCloseBtn = new ImageButton(this);
-        previewCloseBtn.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        previewCloseBtn.setBackgroundColor(Color.TRANSPARENT);
-        previewCloseBtn.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(44), dpToPx(44)));
-        previewCloseBtn.setOnClickListener(v -> clearImagePreview());
-
-        imagePreviewBar.addView(previewImage);
-        imagePreviewBar.addView(previewName);
-        imagePreviewBar.addView(previewCloseBtn);
-        mainContent.addView(imagePreviewBar);
-
-        LinearLayout bottomBar = new LinearLayout(this);
-        bottomBar.setOrientation(LinearLayout.HORIZONTAL);
-        bottomBar.setPadding(8, 6, 8, 6);
-        bottomBar.setBackgroundColor(Color.parseColor("#F0F0F0"));
-
-        attachBtn = new Button(this);
-        attachBtn.setText("+");
-        attachBtn.setTextSize(24f);
-        attachBtn.setBackgroundColor(Color.TRANSPARENT);
-        attachBtn.setMinWidth(dpToPx(42));
-        attachBtn.setMinimumHeight(dpToPx(42));
-        attachBtn.setOnClickListener(v -> showAttachMenu());
-        bottomBar.addView(attachBtn);
-
-        modelList = loadModelList();
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        modelSpinner = new Spinner(this);
-        modelSpinner.setAdapter(adapter);
-        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.3f);
-        spinnerParams.setMarginEnd(dpToPx(4));
-        modelSpinner.setLayoutParams(spinnerParams);
-        modelSpinner.setMinimumHeight(dpToPx(42));
-
-        if (!cachedModel.isEmpty() && modelList.contains(cachedModel)) {
-            modelSpinner.setSelection(modelList.indexOf(cachedModel));
-        }
-
-        modelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String selected = modelList.get(position);
-                if (!selected.isEmpty() && !selected.equals(cachedModel)) {
-                    cachedModel = selected;
-                    prefs.edit().putString("model", selected).apply();
-                    TextView ml = (TextView) drawerLayout.findViewWithTag("modelLabel");
-                    if (ml != null) ml.setText(selected);
-
-                    updateModelInConfig(selected);
-                    Toast.makeText(MainActivity.this, "底层翻译模型已实时切换为: " + selected, Toast.LENGTH_SHORT).show();
-                }
-            }
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        });
-        bottomBar.addView(modelSpinner);
-
-        inputBox = new EditText(this);
-        inputBox.setHint("输入对 AI 的调教指令...");
-        inputBox.setBackgroundColor(Color.WHITE);
-        inputBox.setPadding(12, 8, 12, 8);
-        inputBox.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        inputBox.setMinimumHeight(dpToPx(42));
-        bottomBar.addView(inputBox);
-
-        sendBtn = new Button(this);
-        sendBtn.setText("注入指令");
-        sendBtn.setTextSize(14f);
-        sendBtn.setMinWidth(dpToPx(56));
-        sendBtn.setMinimumHeight(dpToPx(42));
-        sendBtn.setTextColor(Color.WHITE);
-        sendBtn.setBackgroundColor(Color.parseColor("#007BFF"));
-        sendBtn.setOnClickListener(v -> sendMessage());
-        bottomBar.addView(sendBtn);
-
-        mainContent.addView(bottomBar);
         drawerLayout.addView(mainContent);
 
         drawerContent = new LinearLayout(this);
@@ -643,178 +505,6 @@ String out = runRoot(
         popup.show();
     }
 
-    private void loadConfigOnce() {
-        cachedApiKey = prefs.getString("api_key", "");
-        cachedApiUrl = prefs.getString("api_url", "");
-        cachedModel = prefs.getString("model", "");
-        if (cachedApiKey.isEmpty()) cachedApiKey = readConfig("api_key");
-        if (cachedApiUrl.isEmpty()) cachedApiUrl = readConfig("api_url");
-        if (cachedModel.isEmpty()) cachedModel = readConfig("model");
-    }
-
-    private String readConfig(String key) {
-        String content = runRoot("cat /data/local/tmp/htai_config.txt");
-        if (content == null) return "";
-        for (String l : content.split("\n")) {
-            if (l.trim().startsWith(key + "=")) {
-                return l.trim().substring(key.length() + 1).trim();
-            }
-        }
-        return "";
-    }
-
-    private void updateModelInConfig(String newModel) {
-        new Thread(() -> {
-            try {
-                String content = runRoot("cat /data/local/tmp/htai_config.txt 2>/dev/null");
-                StringBuilder updated = new StringBuilder();
-                boolean foundModel = false;
-
-                if (content != null && !content.trim().isEmpty()) {
-                    for (String line : content.split("\\n", -1)) {
-                        if (line.trim().startsWith("model=")) {
-                            if (!foundModel) {
-                                updated.append("model=").append(newModel).append("\n");
-                                foundModel = true;
-                            }
-                        } else if (!line.isEmpty()) {
-                            updated.append(line).append("\n");
-                        }
-                    }
-                }
-
-                if (!foundModel) {
-                    updated.append("model=").append(newModel).append("\n");
-                }
-
-                File tempFile = new File(getCacheDir(), "htai_config_update.txt");
-                BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
-                w.write(updated.toString());
-                w.close();
-
-                runRoot("cp " + tempFile.getAbsolutePath() + " /data/local/tmp/htai_config.txt");
-                runRoot("chmod 644 /data/local/tmp/htai_config.txt");
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
-    private List<String> loadModelList() {
-        List<String> list = new ArrayList<>();
-        String saved = prefs.getString("model_list", "");
-        if (!saved.isEmpty()) {
-            for (String s : saved.split(",")) {
-                String t = s.trim();
-                if (!t.isEmpty()) list.add(t);
-            }
-        }
-        return list;
-    }
-
-    private void showAttachMenu() {
-        new AlertDialog.Builder(this)
-                .setTitle("选择要注入底层记忆的附件")
-                .setItems(new String[]{"🖼️ 相册图片", "📎 文本文档"}, (d, w) -> {
-                    if (w == 0) pickImage();
-                    else if (w == 1) pickFile();
-                })
-                .show();
-    }
-
-    private void pickImage() {
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setType("image/*");
-        startActivityForResult(intent, REQUEST_CODE_PICK_IMAGE);
-    }
-
-    private void pickFile() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("text/plain");
-        startActivityForResult(intent, REQUEST_CODE_PICK_FILE);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null) return;
-        Uri uri = data.getData();
-        if (uri == null) return;
-        if (requestCode == REQUEST_CODE_PICK_IMAGE) {
-            String b64 = imageUriToBase64(uri);
-            if (b64 != null) {
-                pendingImageBase64 = b64;
-                inputBox.setHint("已选图片: " + getFileName(uri) + "，输入调教描述后发送");
-                Toast.makeText(this, "图片已就绪", Toast.LENGTH_SHORT).show();
-            }
-        } else if (requestCode == REQUEST_CODE_PICK_FILE) {
-            String fc = readTextFile(uri);
-            if (fc != null) {
-                sendAttachmentAsMessage("用户上传了前置文档参考：" + getFileName(uri) + "\n内容如下：\n" + fc);
-            }
-        }
-    }
-
-    private void clearImagePreview() {
-        pendingImageBase64 = "";
-        previewImage.setImageBitmap(null);
-        imagePreviewBar.setVisibility(View.GONE);
-        inputBox.setHint("输入对 AI 的调教指令...");
-    }
-
-    private void showImagePreview(Bitmap thumb, String fileName) {
-        previewImage.setImageBitmap(thumb);
-        TextView nv = (TextView) imagePreviewBar.findViewWithTag("previewName");
-        if (nv != null) nv.setText("已选: " + fileName);
-        imagePreviewBar.setVisibility(View.VISIBLE);
-    }
-
-    private String imageUriToBase64(Uri uri) {
-        try {
-            InputStream is = getContentResolver().openInputStream(uri);
-            if (is == null) return null;
-            Bitmap orig = BitmapFactory.decodeStream(is);
-            is.close();
-            if (orig == null) return null;
-            Bitmap thumb = Bitmap.createScaledBitmap(orig, dpToPx(112), dpToPx(112), true);
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            orig.compress(Bitmap.CompressFormat.JPEG, 80, baos);
-            byte[] bytes = baos.toByteArray();
-            orig.recycle();
-            showImagePreview(thumb, getFileName(uri));
-            return Base64.encodeToString(bytes, Base64.NO_WRAP);
-        } catch (Exception e) { return null; }
-    }
-
-    private String readTextFile(Uri uri) {
-        try {
-            InputStream is = getContentResolver().openInputStream(uri);
-            if (is == null) return null;
-            BufferedReader r = new BufferedReader(new InputStreamReader(is));
-            StringBuilder sb = new StringBuilder();
-            String l;
-            while ((l = r.readLine()) != null) sb.append(l).append("\n");
-            r.close();
-            return sb.toString().trim();
-        } catch (Exception e) { return null; }
-    }
-
-    private String getFileName(Uri uri) {
-        String name = null;
-        Cursor c = getContentResolver().query(uri, null, null, null, null);
-        if (c != null && c.moveToFirst()) {
-            int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-            if (idx >= 0) name = c.getString(idx);
-            c.close();
-        }
-        if (name == null) name = uri.getLastPathSegment();
-        return name;
-    }
-
-    private void sendAttachmentAsMessage(String content) {
-        inputBox.setText(content);
-        sendMessage();
-    }
-
     private String runRoot(String cmd) {
         try {
             Process p = Runtime.getRuntime().exec(new String[]{"su", "-M", "-c", cmd});
@@ -1068,67 +758,6 @@ if (content == null || content.trim().isEmpty()) {
                     displayMessage("system", "⚠️ 读取该好友记录失败");
                 }
             });
-        }).start();
-    }
-
-    private void sendMessage() {
-        if (currentChatId.isEmpty()) {
-            Toast.makeText(this, "请先在左侧选择要调教的好友", Toast.LENGTH_SHORT).show();
-            drawerLayout.openDrawer(Gravity.LEFT);
-            return;
-        }
-
-        String text = inputBox.getText().toString().trim();
-        if (text.isEmpty() && pendingImageBase64.isEmpty()) return;
-        if (text.isEmpty() && !pendingImageBase64.isEmpty()) text = "请描述这张图片";
-
-        boolean hasImage = !pendingImageBase64.isEmpty();
-
-        String contentToInject = hasImage ? "[IMAGE_BASE64:" + pendingImageBase64 + "]" + text : text;
-
-        if (hasImage) clearImagePreview();
-
-        String uiDisplay = hasImage ? "【附图调教】 " + text : "【调教指令】 " + text;
-        displayMessage("system", uiDisplay);
-
-        inputBox.setText("");
-
-        new Thread(() -> {
-            try {
-                String path = "/data/data/com.hellotalk/files/htai_hist_" + currentChatId + ".json";
-                String jsonStr = runRoot("cat " + path);
-                JSONArray history;
-                if (jsonStr != null && !jsonStr.trim().isEmpty() && jsonStr.startsWith("[")) {
-                    history = new JSONArray(jsonStr);
-                } else {
-                    history = new JSONArray();
-                }
-
-                JSONObject entry = new JSONObject();
-                entry.put("role", "system");
-                entry.put("content", contentToInject);
-                history.put(entry);
-
-                File tempFile = new File(getCacheDir(), "htai_temp.json");
-                BufferedWriter w = new BufferedWriter(new java.io.FileWriter(tempFile));
-                w.write(history.toString());
-                w.close();
-
-                runRoot("mkdir -p /data/data/com.hellotalk/files");
-                runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) /data/data/com.hellotalk/files 2>/dev/null");
-                runRoot("chmod 777 /data/data/com.hellotalk/files 2>/dev/null");
-                
-                runRoot("cp " + tempFile.getAbsolutePath() + " " + path);
-                runRoot("chmod 666 " + path);
-                runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) " + path + " 2>/dev/null");
-
-                mainHandler.post(() -> {
-                    displayMessage("system", "✅ 指令及附件已静默注入底层！\n切回 HelloTalk 再次点击“译”按钮即可生效。");
-                    messageScrollView.post(() -> messageScrollView.fullScroll(View.FOCUS_DOWN));
-                });
-            } catch (Exception e) {
-                mainHandler.post(() -> displayMessage("system", "❌ 注入失败: " + e.getMessage()));
-            }
         }).start();
     }
 

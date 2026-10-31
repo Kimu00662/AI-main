@@ -3441,6 +3441,7 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
         if (resp.body() == null) throw new IOException("流式响应为空");
 
         StringBuilder content = new StringBuilder();
+        boolean streamFinished = false;
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(resp.body().byteStream(), Charset.forName("UTF-8")))) {
             String line;
@@ -3458,7 +3459,10 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                     continue;
                 }
                 if (payload.isEmpty()) continue;
-                if ("[DONE]".equals(payload)) break;
+                if ("[DONE]".equals(payload)) {
+                    streamFinished = true;
+                    break;
+                }
 
                 JSONObject chunk;
                 try {
@@ -3475,6 +3479,9 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                 if (choices == null || choices.length() == 0) continue;
                 JSONObject choice = choices.optJSONObject(0);
                 if (choice == null) continue;
+                if (choice.has("finish_reason") && !choice.isNull("finish_reason")) {
+                    streamFinished = true;
+                }
                 JSONObject delta = choice.optJSONObject("delta");
                 if (delta != null) {
                     appendStreamingText(content, delta.opt("content"));
@@ -3490,6 +3497,7 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                 maybeClaimStreamingWinner(ep, content, calls, call, winnerEndpoint);
             }
         }
+        if (!streamFinished) throw new IOException("流式响应提前结束，未收到完成标记");
         String result = content.toString().trim();
         if (result.isEmpty()) throw new IOException("流式 API 返回了空数据");
         return result;

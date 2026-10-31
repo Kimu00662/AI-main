@@ -41,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -3261,7 +3262,7 @@ private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoi
     ExecutorService pool = Executors.newFixedThreadPool(racers.size());
     ExecutorCompletionService<RaceResult> completion = new ExecutorCompletionService<>(pool);
     List<Call> calls = Collections.synchronizedList(new ArrayList<Call>());
-    AtomicBoolean won = new AtomicBoolean(false);
+    AtomicReference<ApiEndpoint> winnerEndpoint = new AtomicReference<>();
     List<Future<RaceResult>> futures = new ArrayList<>();
 
     for (ApiEndpoint ep : racers) {
@@ -3276,7 +3277,7 @@ private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoi
                 } else {
                     requestBody.remove("reasoning_effort");
                 }
-                String content = executeRaceStreamingRequest(racer, requestBody, calls, won);
+                String content = executeRaceStreamingRequest(racer, requestBody, calls, winnerEndpoint);
                 return new RaceResult(racer, content, null);
             } catch (IOException e) {
                 return new RaceResult(racer, null, e);
@@ -3300,18 +3301,15 @@ private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoi
                 continue;
             }
             if (result.content != null && isUsablePickerRaceResult(result.content)
-                    && won.compareAndSet(false, true)) {
+                    && (winnerEndpoint.get() == result.endpoint
+                    || winnerEndpoint.compareAndSet(null, result.endpoint))) {
                 lastUsedEndpoint = result.endpoint;
                 activePickerSlot = result.endpoint.slot;
                 if (apiSwitchListener != null) {
                     apiSwitchListener.onApiSwitched(result.endpoint.slot,
                             result.endpoint.model, result.endpoint.url);
                 }
-                synchronized (calls) {
-                    for (Call call : calls) {
-                        if (!call.isCanceled()) call.cancel();
-                    }
-                }
+                cancelRaceCallsExcept(calls, null);
                 Log.i(TAG, "HT_AI 点译流式竞速胜出：API=" + result.endpoint.slot
                         + " model=" + result.endpoint.model);
                 diag("点译流式竞速胜出：API=" + result.endpoint.slot
@@ -3340,12 +3338,7 @@ private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoi
             }
         }
     } finally {
-        won.set(true);
-        synchronized (calls) {
-            for (Call call : calls) {
-                if (!call.isCanceled()) call.cancel();
-            }
-        }
+        cancelRaceCallsExcept(calls, null);
         for (Future<RaceResult> future : futures) future.cancel(true);
         pool.shutdownNow();
     }
@@ -3361,16 +3354,59 @@ private static String executePickerRaceStreaming(JSONObject body, List<ApiEndpoi
                     ? "。最后错误：" + lastError.getMessage() : ""));
 }
 
+private static int cancelRaceCallsExcept(List<Call> calls, Call keep) {
+    int canceled = 0;
+    synchronized (calls) {
+        for (Call call : calls) {
+            if (call != keep && !call.isCanceled()) {
+                call.cancel();
+                canceled++;
+            }
+        }
+    }
+    return canceled;
+}
+
+private static boolean hasCompletePickerOption(String text) {
+    if (text == null) return false;
+    String normalized = text.replace("\r\n", "\n").replace("\r", "\n");
+    int end = normalized.lastIndexOf('\n');
+    if (end < 0) return false;
+    for (String line : normalized.substring(0, end).split("\n")) {
+        String candidate = line.trim();
+        if (!candidate.contains("👉")) continue;
+        String option = candidate.substring(candidate.indexOf("👉"));
+        String[] cells = option.split("\\|", -1);
+        if (cells.length < 3 || cells[0].trim().isEmpty()
+                || cells[1].trim().isEmpty() || cells[2].trim().isEmpty()) continue;
+        if (!parseTranslateOptions(candidate).isEmpty()) return true;
+    }
+    return false;
+}
+
+private static void maybeClaimStreamingWinner(ApiEndpoint ep, StringBuilder content,
+                                              List<Call> calls, Call ownCall,
+                                              AtomicReference<ApiEndpoint> winnerEndpoint) {
+    if (winnerEndpoint.get() != null || !hasCompletePickerOption(content.toString())) return;
+    if (winnerEndpoint.compareAndSet(null, ep)) {
+        int canceled = cancelRaceCallsExcept(calls, ownCall);
+        Log.i(TAG, "HT_AI 流式竞速提前胜出：API=" + ep.slot
+                + " model=" + ep.model + "，已形成完整选项，取消其它流=" + canceled);
+        diag("流式竞速提前胜出：API=" + ep.slot + "，已形成完整选项，取消其它流=" + canceled);
+    }
+}
+
 private static String executeRaceStreamingRequest(ApiEndpoint ep, JSONObject body,
-                                                  List<Call> calls, AtomicBoolean won) throws IOException {
+                                                  List<Call> calls,
+                                                  AtomicReference<ApiEndpoint> winnerEndpoint) throws IOException {
     try {
-        return executeRaceStreamingRequestOnce(ep, body, calls, won);
+        return executeRaceStreamingRequestOnce(ep, body, calls, winnerEndpoint);
     } catch (IOException firstError) {
         if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
             try {
                 JSONObject fallback = new JSONObject(body.toString());
                 fallback.remove("reasoning_effort");
-                return executeRaceStreamingRequestOnce(ep, fallback, calls, won);
+                return executeRaceStreamingRequestOnce(ep, fallback, calls, winnerEndpoint);
             } catch (JSONException e) {
                 throw new IOException("流式竞速思考参数降级请求体构造失败", e);
             }
@@ -3380,8 +3416,9 @@ private static String executeRaceStreamingRequest(ApiEndpoint ep, JSONObject bod
 }
 
 private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject body,
-                                                      List<Call> calls, AtomicBoolean won) throws IOException {
-    if (won.get() || emergencyStop) throw new IOException("Canceled");
+                                                      List<Call> calls,
+                                                      AtomicReference<ApiEndpoint> winnerEndpoint) throws IOException {
+    if (winnerEndpoint.get() != null || emergencyStop) throw new IOException("Canceled");
     Request req = new Request.Builder()
             .url(fixUrl(ep.url))
             .header("Authorization", "Bearer " + ep.key)
@@ -3392,7 +3429,7 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
             .build();
     Call call = ep.ensureClient().newCall(req);
     calls.add(call);
-    if (won.get() || emergencyStop) {
+    if (winnerEndpoint.get() != null || emergencyStop) {
         call.cancel();
         throw new IOException("Canceled");
     }
@@ -3408,7 +3445,9 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                 new InputStreamReader(resp.body().byteStream(), Charset.forName("UTF-8")))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                if (won.get() || emergencyStop) throw new IOException("Canceled");
+                if (winnerEndpoint.get() != null && winnerEndpoint.get() != ep) {
+                    throw new IOException("Canceled");
+                }
                 String payload = line.trim();
                 if (payload.isEmpty() || payload.startsWith(":" ) || payload.startsWith("event:")) {
                     continue;
@@ -3439,6 +3478,7 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                 JSONObject delta = choice.optJSONObject("delta");
                 if (delta != null) {
                     appendStreamingText(content, delta.opt("content"));
+                    maybeClaimStreamingWinner(ep, content, calls, call, winnerEndpoint);
                     continue;
                 }
                 JSONObject message = choice.optJSONObject("message");
@@ -3447,6 +3487,7 @@ private static String executeRaceStreamingRequestOnce(ApiEndpoint ep, JSONObject
                 } else {
                     appendStreamingText(content, choice.opt("text"));
                 }
+                maybeClaimStreamingWinner(ep, content, calls, call, winnerEndpoint);
             }
         }
         String result = content.toString().trim();

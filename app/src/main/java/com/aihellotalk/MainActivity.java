@@ -1021,6 +1021,7 @@ String out = runRoot(
             final String tmpPath = "/data/local/tmp/htai_hist_copy_" + chatId + ".json";
             final String jsonStr = runRoot("rm -f " + tmpPath + "; cp /data/data/com.hellotalk/files/htai_hist_" + chatId + ".json " + tmpPath + " 2>/dev/null; cat " + tmpPath);
             runOnUiThread(() -> {
+                if (!chatId.equals(currentChatId)) return;
                 try {
                 if (jsonStr != null && !jsonStr.trim().isEmpty()) {
     // 修复旧版历史文件开头可能是 "[," 的损坏问题
@@ -1082,6 +1083,7 @@ if (content == null || content.trim().isEmpty()) {
         if (text.isEmpty() && pendingImageBase64.isEmpty()) return;
         if (text.isEmpty() && !pendingImageBase64.isEmpty()) text = "请描述这张图片";
 
+        final String targetChatId = currentChatId;
         boolean hasImage = !pendingImageBase64.isEmpty();
 
         String contentToInject = hasImage ? "[IMAGE_BASE64:" + pendingImageBase64 + "]" + text : text;
@@ -1095,7 +1097,7 @@ if (content == null || content.trim().isEmpty()) {
 
         new Thread(() -> {
             try {
-                String path = "/data/data/com.hellotalk/files/htai_hist_" + currentChatId + ".json";
+                String path = "/data/data/com.hellotalk/files/htai_hist_" + targetChatId + ".json";
                 String jsonStr = runRoot("cat " + path);
                 JSONArray history;
                 if (jsonStr != null && !jsonStr.trim().isEmpty() && jsonStr.startsWith("[")) {
@@ -1123,6 +1125,7 @@ if (content == null || content.trim().isEmpty()) {
                 runRoot("chown $(stat -c %u:%g /data/data/com.hellotalk) " + path + " 2>/dev/null");
 
                 mainHandler.post(() -> {
+                    if (!targetChatId.equals(currentChatId)) return;
                     displayMessage("system", "✅ 指令及附件已静默注入底层！\n切回 HelloTalk 再次点击“译”按钮即可生效。");
                     messageScrollView.post(() -> messageScrollView.fullScroll(View.FOCUS_DOWN));
                 });

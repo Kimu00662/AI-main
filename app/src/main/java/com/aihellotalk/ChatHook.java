@@ -75,6 +75,7 @@ private static volatile Object currentChatDetailFragment = null;
     private static final Map<String, CompletableFuture<String>> receiveTranslations =
             new ConcurrentHashMap<>();
     private static final Set<String> recordedMsgIds = ConcurrentHashMap.newKeySet();
+    private static final Set<String> historyRepairRequests = ConcurrentHashMap.newKeySet();
 
     // 真实消息 mid -> 所属 chatId。在权威解码点 vb0.a$a.c 填充，
     // 用于修正写历史时因全局 currentChatId 漂移导致的跨聊串写。
@@ -188,6 +189,7 @@ private static volatile String pendingSendQuote = null;
     private static volatile String lastPickerResult = null;
     private static volatile String lastPickerOrig = null;
     private static volatile String lastPickerPns = null;
+    private static volatile String lastPickerChatId = null;
     private static volatile boolean lastPickerOneTime = false;
     private static volatile Button versionButton = null;
     private static volatile EditText versionEdit = null;
@@ -245,6 +247,23 @@ private static volatile String pendingSendQuote = null;
         }
         msgMethodsReady = true;
     } catch (Throwable ignored) {}
+}
+
+private static boolean isUsableChatId(String chatId) {
+    return chatId != null
+            && !chatId.trim().isEmpty()
+            && !"0".equals(chatId.trim())
+            && !"null".equalsIgnoreCase(chatId.trim());
+}
+
+private static String resolveMessageChatId(String mid, String rawChatId) {
+    String authoritative = lookupMsgChatId(mid);
+    if (isUsableChatId(authoritative)) return authoritative;
+    if (isUsableChatId(rawChatId)) return rawChatId;
+    if (isHt6090Detected) return null;
+    return newReplyControllerDetected && isUsableChatId(currentChatId)
+            ? currentChatId
+            : null;
 }
 
 private static void callSetText(Object bean, String text) {
@@ -844,6 +863,7 @@ if (selectedReplyValid
         lastPickerResult = null;
         lastPickerOrig = null;
         lastPickerPns = null;
+        lastPickerChatId = null;
         lastPickerOneTime = false;
         uiHandler.post(() -> {
             if (versionButton != null) versionButton.setVisibility(View.GONE);
@@ -910,6 +930,7 @@ if (selectedReplyValid
         lastPickerResult = null;
         lastPickerOrig = null;
         lastPickerPns = null;
+        lastPickerChatId = null;
         lastPickerOneTime = false;
         selectedReplyValid = false;
         selectedReplyText = null;
@@ -3032,35 +3053,20 @@ private static void hookImageRenderLayer(ClassLoader cl) {
                 Object bean = p.getResult();
                 if (bean == null) return;
 
-                String eid = "0";
-Object cidO = invokeQuiet(mGetChatId, msg);
-if (cidO != null) eid = String.valueOf(cidO);
+                Object messageIdObj = invokeQuiet(mGetMsgId, msg);
+                String messageId = messageIdObj == null ? null : String.valueOf(messageIdObj);
+                Object cidO = invokeQuiet(mGetChatId, msg);
+                String rawChatId = cidO == null ? null : String.valueOf(cidO);
+                String resolvedChatId = resolveMessageChatId(messageId, rawChatId);
+                if (!isUsableChatId(resolvedChatId)) {
+                    if (isHt6090Detected) {
+                        log("6.0.90 消息归属不可判定，跳过历史: mid=" + messageId
+                                + " raw=" + rawChatId + " current=" + currentChatId);
+                    }
+                    return;
+                }
 
-// ===== 新版 HelloTalk 历史记录修复 =====
-// 新版部分 HTIMMessage 的 chatId getter 会得到 0/null。
-// 旧版保持原行为；只有检测到新版 m4t 时，才用当前聊天页 H3()
-// 已确认的 currentChatId 作为兜底。
-boolean eidInvalid = eid == null
-        || eid.trim().isEmpty()
-        || "0".equals(eid)
-        || "null".equalsIgnoreCase(eid);
-
-if (eidInvalid && newReplyControllerDetected
-        && currentChatId != null
-        && !currentChatId.trim().isEmpty()
-        && !"0".equals(currentChatId)
-        && !"null".equalsIgnoreCase(currentChatId)) {
-
-    log("新版接收历史 chatId 兜底: raw=" + eid
-            + " current=" + currentChatId);
-
-    eid = currentChatId;
-    eidInvalid = false;
-}
-
-if (eidInvalid) return;
-
-final String chatId = eid;
+                final String chatId = resolvedChatId;
 
                 // 收到对方消息一律不创建遥控好友：
                 // 只有翻译结果真正发送出去以后才创建（新旧版统一）。
@@ -3146,8 +3152,7 @@ final String chatId = eid;
                     registerPendingFriend(chatId, text);
                 }
 
-                Object mio = invokeQuiet(mGetMsgId, msg);
-                String mid = (mio != null) ? String.valueOf(mio) : ("n_" + text.hashCode());
+                String mid = messageId != null ? messageId : ("n_" + text.hashCode());
 // 新版 HelloTalk 的资料占位消息，不是真实聊天内容
 if ("chat_user_profile".equals(mid)) {
     return;
@@ -3251,7 +3256,18 @@ private static void hookMsgDecode6090(ClassLoader cl) {
                             if (!(cid instanceof Number)) return;
                             int c = ((Number) cid).intValue();
                             if (c <= 0) return;
-                            rememberMsgChatId(String.valueOf(mid), String.valueOf(c));
+                            String messageId = String.valueOf(mid);
+                            String ownerChatId = String.valueOf(c);
+                            rememberMsgChatId(messageId, ownerChatId);
+                            if (historyRepairRequests.add(messageId)) {
+                                historyExecutor.execute(() -> {
+                                    try {
+                                        AITranslator.reconcileHistoryMessage(messageId, ownerChatId);
+                                    } finally {
+                                        historyRepairRequests.remove(messageId);
+                                    }
+                                });
+                            }
                         } catch (Throwable ignored) {}
                     }
                 });
@@ -3620,7 +3636,8 @@ updateTranslateBtnText(btn);
 
         verBtn.setOnClickListener(v -> {
             if (lastPickerResult != null) {
-                showPicker(edit, btn, lastPickerResult, lastPickerOrig, lastPickerPns, lastPickerOneTime);
+                showPicker(edit, btn, lastPickerResult, lastPickerOrig, lastPickerPns,
+                        lastPickerChatId, lastPickerOneTime);
             } else {
                 Toast.makeText(edit.getContext(), "暂无可选版本", Toast.LENGTH_SHORT).show();
             }
@@ -3697,6 +3714,7 @@ updateTranslateBtnText(btn);
                             lastPickerResult = null;
                             lastPickerOrig = null;
                             lastPickerPns = null;
+                            lastPickerChatId = null;
                             lastPickerOneTime = false;
                         }
                     } else {
@@ -3706,6 +3724,7 @@ updateTranslateBtnText(btn);
                         lastPickerResult = null;
                         lastPickerOrig = null;
                         lastPickerPns = null;
+                        lastPickerChatId = null;
                         lastPickerOneTime = false;
                     }
                     verBtn.setVisibility(View.GONE);
@@ -4043,7 +4062,7 @@ result = isHt6090Detected
                             btn.setEnabled(true);
                             updateTranslateBtnText(btn);
                             btn.setAlpha(0.92f);
-                            showPicker(edit, btn, fr, rci, pns, oneTimeFinal);
+                            showPicker(edit, btn, fr, rci, pns, cs, oneTimeFinal);
                         });
                     }
                 } catch (Exception e) {
@@ -4198,7 +4217,8 @@ result = isHt6090Detected
         }
     }
 
-    private static void showPicker(EditText edit, Button btn, String result, String origChinese, String pn, boolean oneTime) {
+    private static void showPicker(EditText edit, Button btn, String result, String origChinese,
+            String pn, String pickerChatId, boolean oneTime) {
         android.content.Context ctx = edit.getContext();
 
         String at = AITranslator.extractAnalysis(result);
@@ -4226,6 +4246,10 @@ result = isHt6090Detected
                     .setTitle(refused ? "AI 拒绝或触发安全策略" : "AI 未按格式返回")
                     .setView(sv)
                     .setPositiveButton("⚠️ 重试", (d, w) -> {
+                        if (!isUsableChatId(pickerChatId) || !pickerChatId.equals(currentChatId)) {
+                            Toast.makeText(ctx, "会话已切换，请在当前聊天重新点译", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
                         pendingRetryMode = "fixFormat";
                         edit.post(() -> btn.performClick());
                     })
@@ -4310,6 +4334,10 @@ result = isHt6090Detected
                 .setView(root)
                 .setNegativeButton("取消", (d, w) -> {})
                 .setPositiveButton("🔄 换一批", (d, w) -> {
+                    if (!isUsableChatId(pickerChatId) || !pickerChatId.equals(currentChatId)) {
+                        Toast.makeText(ctx, "会话已切换，请在当前聊天重新点译", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                     pendingRetryMode = "regenerate";
                     // 选过版本后输入框里是外语，而「译」按钮入口要求中文，会直接 return；
                     // 先还原成原始中文（保留「一次性」前缀），换一批才会真正重新请求。
@@ -4362,6 +4390,11 @@ result = isHt6090Detected
             }
 
             card.setOnClickListener(v2 -> {
+                if (!isUsableChatId(pickerChatId) || !pickerChatId.equals(currentChatId)) {
+                    Toast.makeText(ctx, "会话已切换，请在当前聊天重新点译", Toast.LENGTH_SHORT).show();
+                    dialog.dismiss();
+                    return;
+                }
                 String cleanChinese = AITranslator.stripMetaInstructions(origChinese);
 
                 if (cleanChinese != null && !cleanChinese.isEmpty()) {
@@ -4380,8 +4413,9 @@ result = isHt6090Detected
                 lastPickerResult = result;
                 lastPickerOrig = origChinese;
                 lastPickerPns = pn;
+                lastPickerChatId = pickerChatId;
                 lastPickerOneTime = oneTime;
-                pendingFriendChatId = currentChatId;
+                pendingFriendChatId = pickerChatId;
 
                 edit.setText(foreign);
                 edit.setSelection(foreign.length());
@@ -4682,30 +4716,18 @@ private static void hookSendMessage(ClassLoader cl) {
             Object iso = invokeQuiet(mIsSender, msg);
             if (!(iso instanceof Boolean) || !((Boolean) iso)) return;
 
+            Object mio = invokeQuiet(mGetMsgId, msg);
+            String mid = mio == null ? null : String.valueOf(mio);
             Object cidO = invokeQuiet(mGetChatId, msg);
-String chatId = (cidO != null) ? String.valueOf(cidO) : null;
-
-// ===== 新版 HelloTalk 发出消息历史记录修复 =====
-// 只在新版 m4t 已检测到时使用当前页面 chatId 兜底；旧版逻辑不变。
-boolean chatIdInvalid = chatId == null
-        || chatId.trim().isEmpty()
-        || "0".equals(chatId)
-        || "null".equalsIgnoreCase(chatId);
-
-if (chatIdInvalid && newReplyControllerDetected
-        && currentChatId != null
-        && !currentChatId.trim().isEmpty()
-        && !"0".equals(currentChatId)
-        && !"null".equalsIgnoreCase(currentChatId)) {
-
-    log("新版发送历史 chatId 兜底: raw=" + chatId
-            + " current=" + currentChatId);
-
-    chatId = currentChatId;
-    chatIdInvalid = false;
-}
-
-if (chatIdInvalid) return;
+            String rawChatId = cidO == null ? null : String.valueOf(cidO);
+            String chatId = resolveMessageChatId(mid, rawChatId);
+            if (!isUsableChatId(chatId)) {
+                if (isHt6090Detected) {
+                    log("6.0.90 发送归属不可判定，跳过历史: mid=" + mid
+                            + " raw=" + rawChatId + " current=" + currentChatId);
+                }
+                return;
+            }
 
             Object mto = invokeQuiet(mGetMsgType, msg);
             String mt = (mto != null) ? String.valueOf(mto) : null;
@@ -4731,10 +4753,7 @@ if (chatIdInvalid) return;
             if (AITranslator.isChineseOnly(text)) return;
 
             if (pendingFriendRegister) {
-                String registrationChatId = newReplyControllerDetected
-                        ? currentChatId
-                        : chatId;
-                registerPendingFriend(registrationChatId, text);
+                registerPendingFriend(chatId, text);
             }
 
             // 发送路径直接建好友：不等翻译缓存命中，兼容第三方复制粘贴。
@@ -4742,8 +4761,6 @@ if (chatIdInvalid) return;
                 registerOutgoingFriend(chatId, text, msg);
             }
 
-            Object mio = invokeQuiet(mGetMsgId, msg);
-            String mid = (mio != null) ? String.valueOf(mio) : null;
             if (mid == null || mid.isEmpty()) return;
 
             long st = System.currentTimeMillis();

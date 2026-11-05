@@ -114,6 +114,8 @@ public class AITranslator {
     }
 
     private static final Object fileLock = new Object();
+    private static final Map<String, Set<String>> historyOwnersByMsgId = new LinkedHashMap<>();
+    private static boolean historyOwnerIndexReady = false;
 
     private static final Pattern JAPANESE_PATTERN = Pattern.compile("[\\u3040-\\u30FF\\uFF65-\\uFF9F\\u30FC]+");
     private static final Pattern LOCAL_IMAGE_PATTERN = Pattern.compile("\\[LOCAL_IMAGE:(.*?)\\]");
@@ -4007,6 +4009,115 @@ public static JSONArray loadHistory(String chatId) {
     }
 }
 
+    private static void loadHistoryOwnerIndexLocked() {
+        if (historyOwnerIndexReady) return;
+        File dir = new File("/data/data/com.hellotalk/files");
+        File[] files = dir.listFiles((parent, name) ->
+                name.startsWith("htai_hist_") && name.endsWith(".json"));
+        if (files != null) {
+            for (File file : files) {
+                String chatId = file.getName().substring(
+                        "htai_hist_".length(), file.getName().length() - ".json".length());
+                JSONArray history = loadHistory(chatId);
+                for (int i = 0; i < history.length(); i++) {
+                    JSONObject entry = history.optJSONObject(i);
+                    if (entry == null) continue;
+                    String msgId = entry.optString("msgId", "");
+                    if (!msgId.isEmpty()) {
+                        historyOwnersByMsgId.computeIfAbsent(msgId, ignored -> new HashSet<>())
+                                .add(chatId);
+                    }
+                }
+            }
+        }
+        historyOwnerIndexReady = true;
+    }
+
+    private static void rememberHistoryOwnerLocked(String msgId, String chatId) {
+        if (historyOwnerIndexReady && msgId != null && !msgId.isEmpty()) {
+            historyOwnersByMsgId.computeIfAbsent(msgId, ignored -> new HashSet<>()).add(chatId);
+        }
+    }
+
+    public static void reconcileHistoryMessage(String msgId, String ownerChatId) {
+        if (msgId == null || msgId.isEmpty() || ownerChatId == null || ownerChatId.isEmpty()) return;
+        synchronized (fileLock) {
+            loadHistoryOwnerIndexLocked();
+            Set<String> owners = historyOwnersByMsgId.get(msgId);
+            if (owners == null || (owners.size() == 1 && owners.contains(ownerChatId))) return;
+
+            JSONArray destination = loadHistory(ownerChatId);
+            boolean destinationHasMessage = false;
+            for (int i = 0; i < destination.length(); i++) {
+                JSONObject entry = destination.optJSONObject(i);
+                if (entry != null && msgId.equals(entry.optString("msgId", ""))) {
+                    destinationHasMessage = true;
+                    break;
+                }
+            }
+
+            JSONObject entryToMove = null;
+            Map<String, JSONArray> cleanedSources = new LinkedHashMap<>();
+            for (String sourceChatId : new ArrayList<>(owners)) {
+                if (sourceChatId.equals(ownerChatId)) continue;
+                JSONArray source = loadHistory(sourceChatId);
+                JSONArray cleaned = new JSONArray();
+                boolean changed = false;
+                for (int i = 0; i < source.length(); i++) {
+                    JSONObject entry = source.optJSONObject(i);
+                    if (entry != null && msgId.equals(entry.optString("msgId", ""))) {
+                        if (entryToMove == null) entryToMove = entry;
+                        changed = true;
+                    } else if (entry != null) {
+                        cleaned.put(entry);
+                    }
+                }
+                if (changed) cleanedSources.put(sourceChatId, cleaned);
+            }
+
+            if (!destinationHasMessage && entryToMove != null) {
+                destination.put(entryToMove);
+                List<JSONObject> sorted = new ArrayList<>();
+                for (int i = 0; i < destination.length(); i++) {
+                    JSONObject entry = destination.optJSONObject(i);
+                    if (entry != null) sorted.add(entry);
+                }
+                Collections.sort(sorted, (a, b) -> Long.compare(
+                        a.optLong("timestamp", 0), b.optLong("timestamp", 0)));
+                JSONArray repaired = new JSONArray();
+                for (JSONObject entry : sorted) repaired.put(entry);
+                writeHistoryLocked(ownerChatId, repaired);
+                JSONArray verified = loadHistory(ownerChatId);
+                destinationHasMessage = false;
+                for (int i = 0; i < verified.length(); i++) {
+                    JSONObject entry = verified.optJSONObject(i);
+                    if (entry != null && msgId.equals(entry.optString("msgId", ""))) {
+                        destinationHasMessage = true;
+                        break;
+                    }
+                }
+                if (!destinationHasMessage) return;
+            }
+
+            for (Map.Entry<String, JSONArray> source : cleanedSources.entrySet()) {
+                writeHistoryLocked(source.getKey(), source.getValue());
+                JSONArray verified = loadHistory(source.getKey());
+                boolean sourceStillHasMessage = false;
+                for (int i = 0; i < verified.length(); i++) {
+                    JSONObject entry = verified.optJSONObject(i);
+                    if (entry != null && msgId.equals(entry.optString("msgId", ""))) {
+                        sourceStillHasMessage = true;
+                        break;
+                    }
+                }
+                if (!sourceStillHasMessage) owners.remove(source.getKey());
+            }
+            owners.add(ownerChatId);
+            XposedBridge.log("HT_AI 历史消息归属已校正: mid=" + msgId
+                    + " owner=" + ownerChatId);
+        }
+    }
+
     public static void appendHistory(String chatId, String msgId, String role, String content) {
         appendHistory(chatId, msgId, role, content, System.currentTimeMillis(), null, false);
     }
@@ -4063,6 +4174,7 @@ public static JSONArray loadHistory(String chatId) {
                 } else {
                     writeHistoryLocked(chatId, history);
                 }
+                rememberHistoryOwnerLocked(msgId, chatId);
             } catch (Exception ignored) {}
         }
         if (distillBatch != null && !distillBatch.isEmpty()) distillBatch(chatId, distillBatch);

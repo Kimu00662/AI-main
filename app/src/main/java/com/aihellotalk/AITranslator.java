@@ -3252,19 +3252,71 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
 
 private static String executeRaceRequest(ApiEndpoint ep, JSONObject body,
                                          List<Call> calls, AtomicBoolean won) throws IOException {
-    try {
-        return executeRaceRequestOnce(ep, body, calls, won);
-    } catch (IOException firstError) {
-        if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
-            try {
-                JSONObject fallback = new JSONObject(body.toString());
-                fallback.remove("reasoning_effort");
-                return executeRaceRequestOnce(ep, fallback, calls, won);
-            } catch (JSONException e) {
-                throw new IOException("竞速思考参数降级请求体构造失败", e);
+    JSONObject requestBody = body;
+    boolean expandedTokens = false;
+    boolean removedReasoningEffort = false;
+    while (true) {
+        try {
+            return executeRaceRequestOnce(ep, requestBody, calls, won);
+        } catch (OutputTruncatedException e) {
+            if (expandedTokens) throw e;
+            JSONObject expanded = createExpandedTokenRequest(requestBody);
+            if (expanded == null) throw e;
+            requestBody = expanded;
+            expandedTokens = true;
+        } catch (IOException e) {
+            if (!removedReasoningEffort && requestBody.has("reasoning_effort")
+                    && isThinkingParameterUnsupported(e.getMessage())) {
+                try {
+                    requestBody = new JSONObject(requestBody.toString());
+                    requestBody.remove("reasoning_effort");
+                    removedReasoningEffort = true;
+                } catch (JSONException jsonError) {
+                    throw new IOException("竞速思考参数降级请求体构造失败", jsonError);
+                }
+            } else {
+                throw e;
             }
         }
-        throw firstError;
+    }
+}
+
+private static final class OutputTruncatedException extends IOException {
+    OutputTruncatedException() {
+        super("模型输出达到 token 上限");
+    }
+}
+
+private static JSONObject createExpandedTokenRequest(JSONObject body) throws IOException {
+    int currentTokens = body.optInt("max_tokens", getMaxTokens());
+    long expandedTokens = Math.min(32000L, Math.max(1L, currentTokens) * 2L);
+    if (expandedTokens <= currentTokens) return null;
+    try {
+        JSONObject expanded = new JSONObject(body.toString());
+        expanded.put("max_tokens", (int) expandedTokens);
+        return expanded;
+    } catch (JSONException e) {
+        throw new IOException("扩大输出上限时请求体构造失败", e);
+    }
+}
+
+private static String readChatCompletionContent(String responseBody) throws IOException {
+    try {
+        JSONObject json = new JSONObject(responseBody);
+        JSONObject choice = json.getJSONArray("choices").getJSONObject(0);
+        String finishReason = choice.optString("finish_reason", "").toLowerCase(Locale.ROOT);
+        String nativeFinishReason = choice.optString("native_finish_reason", "").toLowerCase(Locale.ROOT);
+        if ("length".equals(finishReason) || finishReason.contains("max_tokens")
+                || nativeFinishReason.contains("max_tokens")) {
+            throw new OutputTruncatedException();
+        }
+        String content = choice.getJSONObject("message").optString("content", "").trim();
+        if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
+        return content;
+    } catch (IOException e) {
+        throw e;
+    } catch (Exception e) {
+        throw new IOException("JSON解析失败：" + responseBody);
     }
 }
 
@@ -3283,17 +3335,7 @@ private static String executeRaceRequestOnce(ApiEndpoint ep, JSONObject body,
     try (Response resp = call.execute()) {
         String responseBody = resp.body() != null ? resp.body().string() : "";
         if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + responseBody);
-        try {
-            JSONObject json = new JSONObject(responseBody);
-            String content = json.getJSONArray("choices").getJSONObject(0)
-                    .getJSONObject("message").optString("content", "").trim();
-            if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
-            return content;
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IOException("JSON解析失败：" + responseBody);
-        }
+        return readChatCompletionContent(responseBody);
     }
 }
 
@@ -3576,29 +3618,34 @@ private static synchronized String executeRequestWithRotation(JSONObject body, O
 }
 
 private static String executeSingleRequest(OkHttpClient useClient, JSONObject body, ApiEndpoint ep) throws IOException {
-    // 第一尝试：按当前 API 的思考模式发送。
-    try {
-        return executeSingleRequestOnce(useClient, body, ep);
-    } catch (IOException firstError) {
-        // 思考参数是“增强项”，第三方中转不认识时不能让用户看到报错。
-        // 只有明确像“参数不支持/未知参数”的 400/422 才静默降级，普通鉴权、额度、
-        // 模型不存在、网络错误等仍按原来的失败流程处理。
-        if (body.has("reasoning_effort") && isThinkingParameterUnsupported(firstError.getMessage())) {
-            try {
-                JSONObject fallbackBody = new JSONObject(body.toString());
-                fallbackBody.remove("reasoning_effort");
-                Log.w(TAG, "HT_AI: API " + ep.slot + " / " + ep.model
-                        + " 不支持 reasoning_effort，已静默改用普通请求");
-                return executeSingleRequestOnce(useClient, fallbackBody, ep);
-            } catch (JSONException jsonError) {
-                // 这里属于本地请求体复制失败，不应把 JSONException 泄漏成编译期未声明异常。
-                throw new IOException("思考参数降级请求体构造失败", jsonError);
-            } catch (IOException fallbackError) {
-                // 降级后的真实错误才交给上层，用户仍只会看到原有的失败行为。
-                throw fallbackError;
+    JSONObject requestBody = body;
+    boolean expandedTokens = false;
+    boolean removedReasoningEffort = false;
+    while (true) {
+        try {
+            return executeSingleRequestOnce(useClient, requestBody, ep);
+        } catch (OutputTruncatedException e) {
+            if (expandedTokens) throw e;
+            JSONObject expanded = createExpandedTokenRequest(requestBody);
+            if (expanded == null) throw e;
+            requestBody = expanded;
+            expandedTokens = true;
+        } catch (IOException e) {
+            if (!removedReasoningEffort && requestBody.has("reasoning_effort")
+                    && isThinkingParameterUnsupported(e.getMessage())) {
+                try {
+                    requestBody = new JSONObject(requestBody.toString());
+                    requestBody.remove("reasoning_effort");
+                    removedReasoningEffort = true;
+                    Log.w(TAG, "HT_AI: API " + ep.slot + " / " + ep.model
+                            + " 不支持 reasoning_effort，已静默改用普通请求");
+                } catch (JSONException jsonError) {
+                    throw new IOException("思考参数降级请求体构造失败", jsonError);
+                }
+            } else {
+                throw e;
             }
         }
-        throw firstError;
     }
 }
 
@@ -3613,14 +3660,7 @@ private static String executeSingleRequestOnce(OkHttpClient useClient, JSONObjec
     try (Response resp = useClient.newCall(req).execute()) {
         String responseBody = resp.body() != null ? resp.body().string() : "";
         if (!resp.isSuccessful()) throw new IOException("HTTP " + resp.code() + " " + responseBody);
-        try {
-            JSONObject json = new JSONObject(responseBody);
-            JSONObject choice = json.getJSONArray("choices").getJSONObject(0);
-            String content = choice.getJSONObject("message").optString("content", "").trim();
-            if (content.isEmpty()) throw new IOException("大模型返回了空数据。");
-            return content;
-        } catch (IOException e) { throw e; }
-        catch (Exception e) { throw new IOException("JSON解析失败：" + responseBody); }
+        return readChatCompletionContent(responseBody);
     }
 }
 

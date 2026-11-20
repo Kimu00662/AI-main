@@ -2997,7 +2997,8 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
     }
 
     IOException lastError = null;
-    RaceResult fallbackResult = null;
+    int refusalCount = 0;
+    int formatMismatchCount = 0;
     int timeoutCount = 0;
     int otherFailureCount = 0;
     try {
@@ -3030,11 +3031,8 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
                 return result.content;
             }
             if (result.content != null && !usableResult) {
-                if (fallbackResult == null
-                        || (isRefusalResponse(fallbackResult.content)
-                        && !isRefusalResponse(result.content))) {
-                    fallbackResult = result;
-                }
+                if (isRefusalResponse(result.content)) refusalCount++;
+                else formatMismatchCount++;
             } else if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
@@ -3059,16 +3057,10 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
-    if (fallbackResult != null) {
-        lastUsedEndpoint = fallbackResult.endpoint;
-        activePickerSlot = fallbackResult.endpoint.slot;
-        if (apiSwitchListener != null) {
-            apiSwitchListener.onApiSwitched(fallbackResult.endpoint.slot,
-                    fallbackResult.endpoint.model, fallbackResult.endpoint.url);
-        }
-        diag("竞速没有可直接解析的结果，返回正常响应正文：API="
-                + fallbackResult.endpoint.slot + " model=" + fallbackResult.endpoint.model);
-        return fallbackResult.content;
+    if (formatMismatchCount + refusalCount > 0) {
+        throw new IOException("点译竞速没有返回可用翻译：格式不匹配 " + formatMismatchCount
+                + "，AI拒绝 " + refusalCount + "，请求失败 "
+                + (timeoutCount + otherFailureCount));
     }
     if (timeoutCount == racers.size()) {
         throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时（每个上限 "
@@ -3135,7 +3127,8 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
     submitted.set(firstBatchSize);
 
     IOException lastError = null;
-    RaceResult fallbackResult = null;
+    int refusalCount = 0;
+    int formatMismatchCount = 0;
     int timeoutCount = 0;
     int otherFailureCount = 0;
     int completed = 0;
@@ -3184,13 +3177,10 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
                 return result.content;
             }
 
-            // 正常正文先保留；只有请求本身失败才计入端点故障。
+            // 不可解析正文只参与汇总，既不能胜出，也不作为端点网络故障。
             if (result.content != null && !usableResult) {
-                if (fallbackResult == null
-                        || (isRefusalResponse(fallbackResult.content)
-                        && !isRefusalResponse(result.content))) {
-                    fallbackResult = result;
-                }
+                if (isRefusalResponse(result.content)) refusalCount++;
+                else formatMismatchCount++;
             } else if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
@@ -3251,16 +3241,10 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
-    if (fallbackResult != null) {
-        lastUsedEndpoint = fallbackResult.endpoint;
-        activePickerSlot = fallbackResult.endpoint.slot;
-        if (apiSwitchListener != null) {
-            apiSwitchListener.onApiSwitched(fallbackResult.endpoint.slot,
-                    fallbackResult.endpoint.model, fallbackResult.endpoint.url);
-        }
-        diag("竞速没有可直接解析的结果，返回正常响应正文：API="
-                + fallbackResult.endpoint.slot + " model=" + fallbackResult.endpoint.model);
-        return fallbackResult.content;
+    if (formatMismatchCount + refusalCount > 0) {
+        throw new IOException("点译竞速没有返回可用翻译：格式不匹配 " + formatMismatchCount
+                + "，AI拒绝 " + refusalCount + "，请求失败 "
+                + (timeoutCount + otherFailureCount));
     }
     if (timeoutCount == totalCount) {
         throw new IOException("所有 " + totalCount + " 个点译 API 均已超时（每个上限 "
@@ -3363,8 +3347,10 @@ private static String executeRaceRequestOnce(ApiEndpoint ep, JSONObject body,
 
 private static boolean isUsablePickerRaceResult(String content) {
     if (content == null || content.trim().isEmpty()) return false;
-    if (isRefusalResponse(content)) return false;
-    return !parseTranslateOptions(content).isEmpty();
+    for (String[] option : parseTranslateOptions(content)) {
+        if (option.length > 0 && containsForeignLetters(option[0])) return true;
+    }
+    return false;
 }
 
 private static boolean isCanceledFailure(Throwable error) {

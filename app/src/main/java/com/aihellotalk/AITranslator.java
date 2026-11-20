@@ -2997,8 +2997,8 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
     }
 
     IOException lastError = null;
+    RaceResult fallbackResult = null;
     int timeoutCount = 0;
-    int invalidCount = 0;
     int otherFailureCount = 0;
     try {
         for (int i = 0; i < racers.size(); i++) {
@@ -3009,8 +3009,9 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
                 lastError = new IOException("竞速任务异常", e);
                 continue;
             }
-            if (result.content != null && isUsablePickerRaceResult(result.content)
-                    && won.compareAndSet(false, true)) {
+            boolean usableResult = result.content != null
+                    && isUsablePickerRaceResult(result.content);
+            if (usableResult && won.compareAndSet(false, true)) {
                 lastUsedEndpoint = result.endpoint;
                 activePickerSlot = result.endpoint.slot;
                 if (apiSwitchListener != null) {
@@ -3028,18 +3029,17 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
                         + " model=" + result.endpoint.model);
                 return result.content;
             }
-            if (result.content != null && !isUsablePickerRaceResult(result.content)) {
-                invalidCount++;
-                result = new RaceResult(result.endpoint, null,
-                        new IOException("竞速返回内容无法解析为点译选项"));
-            }
-            if (result.error != null) {
+            if (result.content != null && !usableResult) {
+                if (fallbackResult == null
+                        || (isRefusalResponse(fallbackResult.content)
+                        && !isRefusalResponse(result.content))) {
+                    fallbackResult = result;
+                }
+            } else if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
                     if (isTimeoutFailure(result.error)) timeoutCount++;
-                    else if (result.content == null && !"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
-                        otherFailureCount++;
-                    }
+                    else otherFailureCount++;
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
                     Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
                             + " model=" + result.endpoint.model + " " + result.error.getMessage());
@@ -3059,12 +3059,23 @@ private static String executePickerRaceAllAtOnce(JSONObject body, List<ApiEndpoi
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
+    if (fallbackResult != null) {
+        lastUsedEndpoint = fallbackResult.endpoint;
+        activePickerSlot = fallbackResult.endpoint.slot;
+        if (apiSwitchListener != null) {
+            apiSwitchListener.onApiSwitched(fallbackResult.endpoint.slot,
+                    fallbackResult.endpoint.model, fallbackResult.endpoint.url);
+        }
+        diag("竞速没有可直接解析的结果，返回正常响应正文：API="
+                + fallbackResult.endpoint.slot + " model=" + fallbackResult.endpoint.model);
+        return fallbackResult.content;
+    }
     if (timeoutCount == racers.size()) {
         throw new IOException("所有 " + racers.size() + " 个点译 API 均已超时（每个上限 "
                 + getRequestTimeoutSeconds() + " 秒）");
     }
-    throw new IOException("点译竞速全部失败：超时 " + timeoutCount
-            + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
+    throw new IOException("点译竞速全部请求失败：超时 " + timeoutCount
+            + "，其它失败 " + otherFailureCount
             + (lastError != null && lastError.getMessage() != null
                     ? "。最后错误：" + lastError.getMessage() : ""));
 }
@@ -3124,8 +3135,8 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
     submitted.set(firstBatchSize);
 
     IOException lastError = null;
+    RaceResult fallbackResult = null;
     int timeoutCount = 0;
-    int invalidCount = 0;
     int otherFailureCount = 0;
     int completed = 0;
     boolean secondBatchSubmitted = false;
@@ -3145,8 +3156,9 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
             completed++;
 
             // 检查是否胜出
-            if (result.content != null && isUsablePickerRaceResult(result.content)
-                    && won.compareAndSet(false, true)) {
+            boolean usableResult = result.content != null
+                    && isUsablePickerRaceResult(result.content);
+            if (usableResult && won.compareAndSet(false, true)) {
                 lastUsedEndpoint = result.endpoint;
                 activePickerSlot = result.endpoint.slot;
                 if (apiSwitchListener != null) {
@@ -3172,19 +3184,18 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
                 return result.content;
             }
 
-            // 处理失败
-            if (result.content != null && !isUsablePickerRaceResult(result.content)) {
-                invalidCount++;
-                result = new RaceResult(result.endpoint, null,
-                        new IOException("竞速返回内容无法解析为点译选项"));
-            }
-            if (result.error != null) {
+            // 正常正文先保留；只有请求本身失败才计入端点故障。
+            if (result.content != null && !usableResult) {
+                if (fallbackResult == null
+                        || (isRefusalResponse(fallbackResult.content)
+                        && !isRefusalResponse(result.content))) {
+                    fallbackResult = result;
+                }
+            } else if (result.error != null) {
                 lastError = result.error;
                 if (!isCanceledFailure(result.error) && !emergencyStop) {
                     if (isTimeoutFailure(result.error)) timeoutCount++;
-                    else if (result.content == null && !"竞速返回内容无法解析为点译选项".equals(result.error.getMessage())) {
-                        otherFailureCount++;
-                    }
+                    else otherFailureCount++;
                     result.endpoint.cooldownUntil = System.currentTimeMillis() + API_COOLDOWN_MS;
                     Log.w(TAG, "HT_AI 竞速端点失败：API=" + result.endpoint.slot
                             + " model=" + result.endpoint.model + " " + result.error.getMessage());
@@ -3196,7 +3207,7 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
             if (!secondBatchSubmitted && completed >= firstBatchSize && !won.get()) {
                 if (secondBatchSize > 0) {
                     List<ApiEndpoint> secondBatch = rotatedRacers.subList(firstBatchSize, totalCount);
-                    diag("首批全部失败，追加第二批=" + secondBatchSize);
+                    diag("首批没有可直接解析的结果，追加第二批=" + secondBatchSize);
                     for (ApiEndpoint ep : secondBatch) {
                         final ApiEndpoint racer = ep;
                         futures.add(completion.submit(() -> {
@@ -3240,12 +3251,23 @@ private static String executePickerRaceWithRotation(JSONObject body, List<ApiEnd
     }
 
     if (emergencyStop) throw new IOException("USER_STOPPED");
+    if (fallbackResult != null) {
+        lastUsedEndpoint = fallbackResult.endpoint;
+        activePickerSlot = fallbackResult.endpoint.slot;
+        if (apiSwitchListener != null) {
+            apiSwitchListener.onApiSwitched(fallbackResult.endpoint.slot,
+                    fallbackResult.endpoint.model, fallbackResult.endpoint.url);
+        }
+        diag("竞速没有可直接解析的结果，返回正常响应正文：API="
+                + fallbackResult.endpoint.slot + " model=" + fallbackResult.endpoint.model);
+        return fallbackResult.content;
+    }
     if (timeoutCount == totalCount) {
         throw new IOException("所有 " + totalCount + " 个点译 API 均已超时（每个上限 "
                 + getRequestTimeoutSeconds() + " 秒）");
     }
-    throw new IOException("点译竞速全部失败：超时 " + timeoutCount
-            + "，格式错误 " + invalidCount + "，其它失败 " + otherFailureCount
+    throw new IOException("点译竞速全部请求失败：超时 " + timeoutCount
+            + "，其它失败 " + otherFailureCount
             + (lastError != null && lastError.getMessage() != null
                     ? "。最后错误：" + lastError.getMessage() : ""));
 }

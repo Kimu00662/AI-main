@@ -1937,11 +1937,6 @@ CharSequence cs = (CharSequence) param.args[0];
 
                 // 主线程只做轻量判断：必须有外语字母
                 if (!AITranslator.hasAnyLetterOrDigit(s)) return;
-                // 纯日语（含假名、无其它外语字母）保持原文，避免把日文界面文案也翻乱；
-                // 日语只是夹杂在其它外语里（如俄语）时照常翻译
-                if (AITranslator.containsJapanese(s)
-                        && !AITranslator.hasNonJapaneseForeignLetters(s)) return;
-
                 // 自己发的：只查 mySentDrafts，命中只加 🌐
 String d = AITranslator.mySentDrafts.get(s);
 if (d != null && !d.equals(s)) {
